@@ -1,6 +1,5 @@
 use crate::dataset::writer::DatasetWriter;
 use crate::ros2::capture::{CaptureCamera, CaptureConfig};
-use crate::ros2::topic::{GlobalTransformTopic, TopicPublisher};
 use crate::{Armor, InfantryRoot, LocalInfantry};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
@@ -142,43 +141,85 @@ pub struct ArmorOnScreen(pub HashMap<Entity, HashMap<String, [(u32, u32); 4]>>);
 
 fn query(
     children: Query<&Children>,
-    global_transform: Query<(&GlobalTransform, &Mesh3d, &Armor)>,
+    names: Query<&Name>,
+    child_of: Query<&ChildOf>,
+    global_transforms: Query<&GlobalTransform>,
+    armor_query: Query<(&GlobalTransform, &Mesh3d, &Armor)>,
     infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
-    camera: Single<(&Projection, &GlobalTransform), With<CaptureCamera>>,
+    camera: Single<(&Camera3d, &Projection, &GlobalTransform), With<CaptureCamera>>,
     config: Res<CaptureConfig>,
     mut armor_screen: ResMut<ArmorOnScreen>,
-    mut tf_pub: ResMut<TopicPublisher<GlobalTransformTopic>>,
     ass: Res<Assets<Mesh>>,
-    mut m: MeshRayCast,
+    mut raycast: MeshRayCast,
 ) {
     armor_screen.clear();
-    let (projection, camera_global_transform) = camera.into_inner();
+    let (cam, projection, camera_global_transform) = camera.into_inner();
+    let camera_pos = camera_global_transform.translation();
+
     for infantry in infantry.iter() {
         armor_screen.insert(infantry, HashMap::new());
         let armor_screen = armor_screen.get_mut(&infantry).unwrap();
-        for child in children.iter_descendants(infantry) {
-            if let Ok((global_transform, aabb, Armor(armor_name))) = global_transform.get(child) {
-                let Some(corners) = extract_corners(global_transform, ass.get(aabb).unwrap())
+
+        'armor: for child in children.iter_descendants(infantry) {
+            if let Ok((global_transform, mesh_handle, Armor(armor_name))) = armor_query.get(child) {
+                let Some(corners) =
+                    extract_corners(global_transform, ass.get(mesh_handle).unwrap())
                 else {
                     continue;
                 };
-                let corners: Vec<_> = corners
-                    .into_iter()
-                    .filter_map(|corner| {
-                        let dir = corner - camera_global_transform.translation();
 
+                // 屏幕投影
+                let screen_corners: Vec<_> = corners
+                    .iter()
+                    .filter_map(|&corner| {
                         world_to_screen(corner, camera_global_transform, projection, &config)
                     })
                     .collect();
-                if corners.len() != 4 {
-                    //不是完整出现的
-                    continue;
+                if screen_corners.len() != 4 {
+                    continue 'armor; // 四角没有完全在屏幕上
                 }
+
+                // raycast 遮挡检测
+                for &corner in &corners {
+                    let dir = corner - camera_pos;
+                    if dir.length_squared() < 1e-8 {
+                        continue;
+                    }
+                    let ray = Ray3d::new(camera_pos, Dir3::from_xyz(dir.x, dir.y, dir.z).unwrap());
+                    let hits = raycast.cast_ray(
+                        ray,
+                        &MeshRayCastSettings {
+                            visibility: RayCastVisibility::VisibleInView,
+                            filter: &|e| {
+                                e != child
+                                    && !child_of.iter_ancestors(e).any(|parent| {
+                                        names.get(parent).is_ok_and(|v| {
+                                            v.starts_with("ARMOR_") && v.ends_with("_L")
+                                        })
+                                    })
+                            },
+                            ..default()
+                        },
+                    );
+
+                    // 如果有阻挡物在角点前面，跳过整个装甲
+                    //println!("hits: {:?}", hits.len());
+                    hits.iter().for_each(|(e, hit)| {
+                        //   println!("hit: {:?}", names.get(*e));
+                    });
+                    if hits.iter().any(|(_, hit)| hit.distance < dir.length()) {
+                        continue 'armor;
+                    }
+                }
+
+                // 四角都可见，插入 armor_screen
                 armor_screen.insert(
                     armor_name.clone(),
-                    sort_screen_points(corners.try_into().unwrap()),
+                    sort_screen_points(screen_corners.try_into().unwrap()),
                 );
             }
         }
+
+        println!("Infantry {} armor count: {}", infantry, armor_screen.len());
     }
 }

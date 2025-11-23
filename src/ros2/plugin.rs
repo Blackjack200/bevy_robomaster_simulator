@@ -1,12 +1,11 @@
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{
-    arc_mutex, publisher, robomaster::power_rune::{PowerRune, RuneIndex}, InfantryGimbal, InfantryViewOffset,
+    add_tf_frame, arc_mutex, pose, publisher, robomaster::power_rune::{PowerRune, RuneIndex}, InfantryGimbal, InfantryViewOffset,
     LocalInfantry,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
-use r2r::geometry_msgs::msg::{Pose, PoseStamped};
 use r2r::ClockType::SystemTime;
 use r2r::{std_msgs::msg::Header, tf2_msgs::msg::TFMessage, Clock, Context, Node};
 use std::f32::consts::PI;
@@ -18,33 +17,6 @@ use std::{
     },
     thread::{self, JoinHandle},
 };
-
-pub const M_ALIGN_MAT3: Mat3 = Mat3::from_cols(
-    Vec3::new(0.0, -1.0, 0.0), // M[0,0], M[1,0], M[2,0]
-    Vec3::new(0.0, 0.0, 1.0),  // M[0,1], M[1,1], M[2,1]
-    Vec3::new(-1.0, 0.0, 0.0), // M[0,2], M[1,2], M[2,2]
-);
-
-#[inline]
-pub fn transform(bevy_transform: Transform) -> r2r::geometry_msgs::msg::Transform {
-    let align_rot_mat = M_ALIGN_MAT3;
-    let align_quat = Quat::from_mat3(&align_rot_mat);
-    let new_rotation = align_quat * bevy_transform.rotation * align_quat.inverse();
-    let new_translation = align_rot_mat * bevy_transform.translation;
-    r2r::geometry_msgs::msg::Transform {
-        translation: r2r::geometry_msgs::msg::Vector3 {
-            x: new_translation.x as f64,
-            y: new_translation.y as f64,
-            z: new_translation.z as f64,
-        },
-        rotation: r2r::geometry_msgs::msg::Quaternion {
-            x: new_rotation.x as f64,
-            y: new_rotation.y as f64,
-            z: new_rotation.z as f64,
-            w: new_rotation.w as f64,
-        },
-    }
-}
 
 macro_rules! res_unwrap {
     ($res:tt) => {
@@ -63,50 +35,6 @@ pub struct MainCamera;
 
 #[derive(Resource)]
 pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
-
-#[macro_export]
-macro_rules! add_tf_frame {
-    ($ls:ident, $hdr:expr, $id:expr, $translation:expr, $rotation:expr) => {
-        $ls.push(::r2r::geometry_msgs::msg::TransformStamped {
-            header: $hdr.clone(),
-            child_frame_id: $id.to_string(),
-            transform: crate::ros2::plugin::transform(
-                Transform::IDENTITY
-                    .with_translation($translation)
-                    .with_rotation($rotation),
-            ),
-        });
-    };
-    ($ls:ident, $hdr:expr, $id:expr, $transform:expr) => {
-        $ls.push(::r2r::geometry_msgs::msg::TransformStamped {
-            header: $hdr.clone(),
-            child_frame_id: $id.to_string(),
-            transform: crate::ros2::plugin::transform($transform),
-        });
-    };
-}
-
-#[macro_export]
-macro_rules! pose {
-    ($hdr:expr) => {
-        PoseStamped {
-            header: $hdr.clone(),
-            pose: Pose {
-                position: r2r::geometry_msgs::msg::Point {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                },
-                orientation: r2r::geometry_msgs::msg::Quaternion {
-                    x: 0.0,
-                    y: 0.0,
-                    z: 0.0,
-                    w: 1.0,
-                },
-            },
-        }
-    };
-}
 
 fn capture_rune(
     camera: Single<&GlobalTransform, With<MainCamera>>,

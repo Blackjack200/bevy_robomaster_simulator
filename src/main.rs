@@ -17,14 +17,13 @@ use avian3d::prelude::*;
 use bevy::camera::Exposure;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
-use bevy::post_process::bloom::Bloom;
-use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
+use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
+use bevy::winit::WINIT_WINDOWS;
 use bevy::{
     anti_alias::fxaa::Fxaa,
     input::mouse::MouseMotion,
     prelude::*,
-    render::view::Hdr,
     scene::{SceneInstance, SceneInstanceReady},
 };
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
@@ -217,12 +216,6 @@ fn setup(
             (trimesh.clone(), layer_env, Visibility::Hidden),
         )])),
     ));
-    commands.spawn((
-        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
-        Transform::IDENTITY
-            .with_scale(Vec3::splat(1.0))
-            .with_translation(Vec3::new(1.0, 0.5, 1.0)),
-    ));
 
     let mut power_rune_col = HashMap::from([]);
     for i in 1..=2 {
@@ -241,7 +234,7 @@ fn setup(
     }
     commands.spawn((
         RigidBody::Static,
-        CollisionMargin(0.01),
+        CollisionMargin(0.001),
         Restitution::ZERO,
         SceneRoot(asset_server.load("POWER.glb#Scene0")),
         Transform::IDENTITY,
@@ -252,7 +245,7 @@ fn setup(
     commands.spawn((
         RigidBody::Dynamic,
         Collider::cylinder(0.2593615, 0.433951),
-        CollisionMargin(0.01),
+        CollisionMargin(0.001),
         CollisionLayers::new(
             GameLayer::Vehicle,
             [
@@ -299,7 +292,6 @@ fn setup(
 
     commands.spawn((
         Camera3d::default(),
-        Bloom::NATURAL,
         Camera::default(),
         PrimaryEguiContext,
         Projection::Perspective(PerspectiveProjection {
@@ -311,7 +303,6 @@ fn setup(
         Exposure::SUNLIGHT,
         Msaa::Off,
         Fxaa::default(),
-        Hdr,
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
             follow_offset: Vec3::new(0.0, 3.0, 2.0),
@@ -502,7 +493,7 @@ fn setup_collision(
                 Mass(0.0),
                 Restitution::ZERO,
                 constructor.clone(),
-                CollisionMargin(0.02),
+                CollisionMargin(0.001),
                 *layer,
             ));
             if visibility == Visibility::Hidden {
