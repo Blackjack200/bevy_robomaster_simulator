@@ -187,6 +187,7 @@ fn receive_image_from_buffer(
     }
     r.reset();
     let ctx = Arc::new(ctx.clone());
+
     let config = Arc::new(config.clone());
     let (width, height, texture_format) = (config.width, config.height, config.texture_format);
     for image_copier in image_copiers.0.iter() {
