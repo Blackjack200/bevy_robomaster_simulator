@@ -2,41 +2,31 @@ use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::Exposure;
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::prepass::DepthPrepass;
-use bevy::ecs::query::QueryItem;
-use bevy::ecs::system::lifetimeless::Read;
 use bevy::post_process::bloom::Bloom;
-use bevy::render::camera::ExtractedCamera;
-use bevy::render::render_graph::{RenderGraphExt, ViewNodeRunner};
-use bevy::render::render_resource::{
-    Origin3d, TextureAspect,
-};
-use bevy::render::view::{Hdr, ViewDepthTexture};
+use bevy::render::view::Hdr;
 use bevy::tasks::AsyncComputeTaskPool;
 use bevy::{
     image::TextureFormatPixelInfo,
     prelude::*,
     render::{
-        render_asset::RenderAssets, render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel}, render_resource::{
+        Extract, Render, RenderApp, RenderSystems,
+        render_asset::RenderAssets,
+        render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
+        render_resource::{
             Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, MapMode,
             PollType, TexelCopyBufferInfo, TexelCopyBufferLayout, TextureFormat, TextureUsages,
-        }, renderer::{RenderContext, RenderDevice, RenderQueue},
-        Extract,
-        Render,
-        RenderApp,
-        RenderSystems,
+        },
+        renderer::{RenderContext, RenderDevice, RenderQueue},
     },
 };
+use r2r::Clock;
 use r2r::sensor_msgs::msg::{CameraInfo, RegionOfInterest};
 use r2r::std_msgs::msg::Header;
-use r2r::Clock;
 use std::sync::{
-    atomic::{AtomicBool, Ordering}, Arc,
-    Mutex,
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
-use bevy::render::texture::GpuImage;
 
 #[derive(Resource, Clone)]
 pub struct CaptureConfig {
@@ -52,7 +42,6 @@ struct ImageCopiers(pub Vec<ImageCopier>);
 #[derive(Clone, Component)]
 struct ImageCopier {
     buffer: Buffer,
-    depth_buffer: Buffer,
     copying: Arc<AtomicBool>,
     enabled: Arc<AtomicBool>,
     src_image: Handle<Image>,
@@ -72,16 +61,9 @@ impl ImageCopier {
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let depth_buffer = render_device.create_buffer(&BufferDescriptor {
-            label: None,
-            size: padded_bytes_per_row as u64 * size.height as u64,
-            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
         ImageCopier {
             buffer: cpu_buffer,
-            depth_buffer,
             src_image,
             copying: Arc::new(AtomicBool::new(false)),
             enabled: Arc::new(AtomicBool::new(true)),
@@ -104,25 +86,6 @@ struct ImageCopy;
 
 #[derive(Default)]
 struct ImageCopyDriver;
-impl render_graph::ViewNode for CopyDepthTextureNode {
-    type ViewQuery = (Read<ExtractedCamera>, Read<ViewDepthTexture>);
-
-    fn run<'w>(
-        &self,
-        _: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        (camera, depth_texture): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        // only run on depth-only camera
-        if camera.order >= 0 {
-            return Ok(());
-        }
-
-       
-        Ok(())
-    }
-}
 
 impl render_graph::Node for ImageCopyDriver {
     fn run(
@@ -187,7 +150,6 @@ fn receive_image_from_buffer(
     }
     r.reset();
     let ctx = Arc::new(ctx.clone());
-
     let config = Arc::new(config.clone());
     let (width, height, texture_format) = (config.width, config.height, config.texture_format);
     for image_copier in image_copiers.0.iter() {
@@ -282,38 +244,12 @@ pub struct RosCapturePlugin {
 #[derive(Resource, Deref, DerefMut)]
 struct RateLimiter(Timer);
 
-/// A label for the render node that copies the depth buffer from that of the
-/// camera to the [`DemoDepthTexture`].
-#[derive(Clone, PartialEq, Eq, Hash, Debug, RenderLabel)]
-struct CopyDepthTexturePass;
-
-/// The render node that copies the depth buffer from that of the camera to the
-/// [`DemoDepthTexture`].
-#[derive(Default)]
-struct CopyDepthTextureNode;
-
 impl Plugin for RosCapturePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.config.clone())
             .add_systems(Update, sync_camera)
             .add_systems(Startup, setup_capture_scene);
         let render_app = app.sub_app_mut(RenderApp);
-
-        render_app.add_render_graph_node::<ViewNodeRunner<CopyDepthTextureNode>>(
-            Core3d,
-            CopyDepthTexturePass,
-        );
-        // We have the texture copy operation run in between the prepasses and
-        // the opaque pass. Since the depth rendering is part of the prepass, this
-        // is a reasonable time to perform the operation.
-        render_app.add_render_graph_edges(
-            Core3d,
-            (
-                Node3d::EndPrepasses,
-                CopyDepthTexturePass,
-                Node3d::MainOpaquePass,
-            ),
-        );
 
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(ImageCopy, ImageCopyDriver);
@@ -335,7 +271,6 @@ impl Plugin for RosCapturePlugin {
 }
 
 #[derive(Component)]
-#[require(Camera, Camera3d, DepthPrepass)]
 pub struct CaptureCamera;
 
 fn setup_capture_scene(
@@ -378,7 +313,6 @@ fn setup_capture_scene(
         Fxaa::default(),
         Hdr,
         CaptureCamera,
-        DepthPrepass,
     ));
 }
 

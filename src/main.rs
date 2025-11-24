@@ -19,7 +19,6 @@ use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
-use bevy::winit::WINIT_WINDOWS;
 use bevy::{
     anti_alias::fxaa::Fxaa,
     input::mouse::MouseMotion,

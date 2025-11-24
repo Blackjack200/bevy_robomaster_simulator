@@ -144,7 +144,7 @@ fn query(
     names: Query<&Name>,
     child_of: Query<&ChildOf>,
     global_transforms: Query<&GlobalTransform>,
-    armor_query: Query<(&GlobalTransform, &Mesh3d, &Armor)>,
+    armor_query: Query<(&GlobalTransform, &Mesh3d, &Armor, &ViewVisibility)>,
     infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
     camera: Single<(&Camera3d, &Projection, &GlobalTransform), With<CaptureCamera>>,
     config: Res<CaptureConfig>,
@@ -161,7 +161,12 @@ fn query(
         let armor_screen = armor_screen.get_mut(&infantry).unwrap();
 
         'armor: for child in children.iter_descendants(infantry) {
-            if let Ok((global_transform, mesh_handle, Armor(armor_name))) = armor_query.get(child) {
+            if let Ok((global_transform, mesh_handle, Armor(armor_name), view_visibility)) =
+                armor_query.get(child)
+            {
+                if !view_visibility.get() {
+                    continue;
+                }
                 let Some(corners) =
                     extract_corners(global_transform, ass.get(mesh_handle).unwrap())
                 else {
@@ -182,10 +187,11 @@ fn query(
                 // raycast 遮挡检测
                 for &corner in &corners {
                     let dir = corner - camera_pos;
-                    if dir.length_squared() < 1e-8 {
+                    let total_dist = dir.length();
+                    if total_dist < 1e-6 {
                         continue;
                     }
-                    let ray = Ray3d::new(camera_pos, Dir3::from_xyz(dir.x, dir.y, dir.z).unwrap());
+                    let ray = Ray3d::new(camera_pos, Dir3::new(dir.normalize()).unwrap());
                     let hits = raycast.cast_ray(
                         ray,
                         &MeshRayCastSettings {
@@ -198,16 +204,26 @@ fn query(
                                         })
                                     })
                             },
-                            ..default()
+                            early_exit_test: &|hit| {
+                                // 如果命中点比顶点更近，说明被遮挡
+                                if let Ok(transform) = global_transforms.get(hit) {
+                                    return transform.translation().distance(camera_pos)
+                                        < total_dist;
+                                }
+                                true
+                            },
                         },
                     );
 
                     // 如果有阻挡物在角点前面，跳过整个装甲
                     //println!("hits: {:?}", hits.len());
-                    hits.iter().for_each(|(e, hit)| {
-                        //   println!("hit: {:?}", names.get(*e));
-                    });
-                    if hits.iter().any(|(_, hit)| hit.distance < dir.length()) {
+                    if hits
+                        .iter()
+                        .any(|(_, hit)| total_dist - hit.distance > 0.001)
+                    {
+                        hits.iter().for_each(|(e, hit)| {
+                            println!("hit: {:?}", names.get(*e));
+                        });
                         continue 'armor;
                     }
                 }
