@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageBuffer, Rgb};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -12,6 +12,7 @@ pub struct ArmorEntry {
     pub points: [Vec2; 4],
 }
 
+#[derive(Resource)]
 pub struct DatasetWriter {
     image_dir: PathBuf,
     label_dir: PathBuf,

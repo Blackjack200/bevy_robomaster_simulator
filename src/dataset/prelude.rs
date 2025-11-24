@@ -1,3 +1,4 @@
+use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
 use crate::dataset::writer::DatasetWriter;
 use crate::ros2::capture::{CaptureCamera, CaptureConfig};
 use crate::{Armor, InfantryRoot, LocalInfantry};
@@ -6,13 +7,12 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 use std::mem::swap;
 
-#[derive(Resource, Deref, DerefMut)]
-struct Dataset(DatasetWriter);
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Dataset(DatasetWriter::new("dataset").unwrap()))
+        app.insert_resource(DatasetWriter::new("dataset").unwrap())
             .insert_resource(ArmorOnScreen::default())
+            .insert_resource(OcclusionConfig::default())
             .add_systems(Update, query.after(TransformSystems::Propagate));
     }
 }
@@ -46,12 +46,8 @@ pub fn world_to_screen(
     projection: &Projection,
     config: &CaptureConfig,
 ) -> Option<(u32, u32)> {
-    // world -> view
-    let view = camera_xform.to_matrix().inverse();
-    // view -> clip
-    let proj = projection.get_clip_from_view();
-
-    let clip = proj * view * world.extend(1.0);
+    let clip =
+        projection.get_clip_from_view() * camera_xform.to_matrix().inverse() * world.extend(1.0);
 
     // point is behind camera
     if clip.w <= 0.0 {
@@ -73,9 +69,11 @@ pub fn world_to_screen(
     Some((screen_x as u32, screen_y as u32))
 }
 
-fn sort_screen_points(points: [(u32, u32); 4]) -> [(u32, u32); 4] {
+type CornerTuple = (Vec3, (u32, u32));
+
+fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
     // 转为 Vec2 方便做浮点运算
-    let n: [Vec2; 4] = points.map(|(x, y)| Vec2::new(x as f32, y as f32));
+    let n: [(CornerTuple, Vec2); 4] = points.map(|v| (v, Vec2::new(v.1.0 as f32, v.1.1 as f32)));
 
     let mut axis = 0.0;
     let mut diag = (0, 0);
@@ -84,7 +82,7 @@ fn sort_screen_points(points: [(u32, u32); 4]) -> [(u32, u32); 4] {
     // points.cartesian_product().map().max() 总是对角线
     for i in 0..4 {
         for j in i + 1..4 {
-            let d = (n[i] - n[j]).length();
+            let d = (n[i].1 - n[j].1).length();
             if d > axis {
                 axis = d;
                 diag = (i, j);
@@ -95,17 +93,17 @@ fn sort_screen_points(points: [(u32, u32); 4]) -> [(u32, u32); 4] {
     // 第一根对角线的两个点
     let mut p0 = n[diag.0];
     let mut p2 = n[diag.1];
-    if p0.x > p2.x {
+    if p0.1.x > p2.1.x {
         // 左上角总是 x 较小的那个
         swap(&mut p0, &mut p2);
     }
-    let [mut p1, mut p3]: [Vec2; 2] = (0..4)
+    let [mut p1, mut p3]: [(CornerTuple, Vec2); 2] = (0..4)
         .filter(|&i| i != diag.0 && i != diag.1)
         .map(|i| n[i])
         .collect::<Vec<_>>()
         .try_into()
         .unwrap();
-    if p1.x > p3.x {
+    if p1.1.x > p3.1.x {
         // 左上角总是 x 较小的那个
         swap(&mut p1, &mut p3);
     }
@@ -121,18 +119,18 @@ fn sort_screen_points(points: [(u32, u32); 4]) -> [(u32, u32); 4] {
      */
 
     // 同样的，根据 y 坐标调整顺序，让顺时针/逆时针正确
-    if p0.y > p1.y {
+    if p0.1.y > p1.1.y {
         swap(&mut p0, &mut p1);
     }
-    if p3.y > p2.y {
+    if p3.1.y > p2.1.y {
         swap(&mut p3, &mut p2);
     }
 
     [
-        (p0.x as u32, p0.y as u32), // 左上
-        (p1.x as u32, p1.y as u32), // 左下
-        (p2.x as u32, p2.y as u32), // 右下
-        (p3.x as u32, p3.y as u32), // 右上
+        p0.0, // 左上
+        p1.0, // 左下
+        p2.0, // 右下
+        p3.0, // 右上
     ]
 }
 
@@ -141,99 +139,60 @@ pub struct ArmorOnScreen(pub HashMap<Entity, HashMap<String, [(u32, u32); 4]>>);
 
 fn query(
     children: Query<&Children>,
-    names: Query<&Name>,
-    child_of: Query<&ChildOf>,
-    global_transforms: Query<&GlobalTransform>,
     armor_query: Query<(&GlobalTransform, &Mesh3d, &Armor, &ViewVisibility)>,
     infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
-    camera: Single<(&Camera3d, &Projection, &GlobalTransform), With<CaptureCamera>>,
+    camera: Single<(&Projection, &GlobalTransform), With<CaptureCamera>>,
     config: Res<CaptureConfig>,
     mut armor_screen: ResMut<ArmorOnScreen>,
     ass: Res<Assets<Mesh>>,
-    mut raycast: MeshRayCast,
+    mut occlusion: Occlusion,
+    mut dataset: ResMut<DatasetWriter>,
 ) {
     armor_screen.clear();
-    let (cam, projection, camera_global_transform) = camera.into_inner();
+    let (projection, camera_global_transform) = camera.into_inner();
     let camera_pos = camera_global_transform.translation();
 
-    for infantry in infantry.iter() {
+    for infantry in infantry {
         armor_screen.insert(infantry, HashMap::new());
         let armor_screen = armor_screen.get_mut(&infantry).unwrap();
 
-        'armor: for child in children.iter_descendants(infantry) {
-            if let Ok((global_transform, mesh_handle, Armor(armor_name), view_visibility)) =
-                armor_query.get(child)
-            {
-                if !view_visibility.get() {
-                    continue;
-                }
-                let Some(corners) =
-                    extract_corners(global_transform, ass.get(mesh_handle).unwrap())
-                else {
-                    continue;
-                };
-
-                // 屏幕投影
-                let screen_corners: Vec<_> = corners
-                    .iter()
-                    .filter_map(|&corner| {
-                        world_to_screen(corner, camera_global_transform, projection, &config)
-                    })
-                    .collect();
-                if screen_corners.len() != 4 {
-                    continue 'armor; // 四角没有完全在屏幕上
-                }
-
-                // raycast 遮挡检测
-                for &corner in &corners {
-                    let dir = corner - camera_pos;
-                    let total_dist = dir.length();
-                    if total_dist < 1e-6 {
-                        continue;
-                    }
-                    let ray = Ray3d::new(camera_pos, Dir3::new(dir.normalize()).unwrap());
-                    let hits = raycast.cast_ray(
-                        ray,
-                        &MeshRayCastSettings {
-                            visibility: RayCastVisibility::VisibleInView,
-                            filter: &|e| {
-                                e != child
-                                    && !child_of.iter_ancestors(e).any(|parent| {
-                                        names.get(parent).is_ok_and(|v| {
-                                            v.starts_with("ARMOR_") && v.ends_with("_L")
-                                        })
-                                    })
-                            },
-                            early_exit_test: &|hit| {
-                                // 如果命中点比顶点更近，说明被遮挡
-                                if let Ok(transform) = global_transforms.get(hit) {
-                                    return transform.translation().distance(camera_pos)
-                                        < total_dist;
-                                }
-                                true
-                            },
-                        },
-                    );
-
-                    // 如果有阻挡物在角点前面，跳过整个装甲
-                    //println!("hits: {:?}", hits.len());
-                    if hits
-                        .iter()
-                        .any(|(_, hit)| total_dist - hit.distance > 0.001)
-                    {
-                        hits.iter().for_each(|(e, hit)| {
-                            println!("hit: {:?}", names.get(*e));
-                        });
-                        continue 'armor;
-                    }
-                }
-
-                // 四角都可见，插入 armor_screen
-                armor_screen.insert(
-                    armor_name.clone(),
-                    sort_screen_points(screen_corners.try_into().unwrap()),
-                );
+        for armor_entity in children.iter_descendants(infantry) {
+            let Ok((global_transform, mesh_handle, Armor(armor_name), view_visibility)) =
+                armor_query.get(armor_entity)
+            else {
+                continue;
+            };
+            if !view_visibility.get() {
+                continue;
             }
+            let Some(corners) = extract_corners(global_transform, ass.get(mesh_handle).unwrap())
+            else {
+                continue;
+            };
+
+            // 屏幕投影
+            let corners: Vec<_> = corners
+                .into_iter()
+                .filter_map(|corner| {
+                    let Some(pos) =
+                        world_to_screen(corner, camera_global_transform, projection, &config)
+                    else {
+                        return None;
+                    };
+                    Some((corner, pos))
+                })
+                .collect();
+            if corners.len() != 4 {
+                continue; // 四角没有完全在屏幕上
+            }
+            let corners_ordered =
+                sort_screen_points([corners[0], corners[1], corners[2], corners[3]]);
+            if !occlusion.visible(camera_pos, armor_entity, &corners_ordered) {
+                continue;
+            }
+
+            // 四角都可见，插入 armor_screen
+            armor_screen.insert(armor_name.clone(), corners_ordered.map(|v| v.1));
         }
 
         println!("Infantry {} armor count: {}", infantry, armor_screen.len());
