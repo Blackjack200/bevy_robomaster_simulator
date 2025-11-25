@@ -6,4 +6,4 @@ assets/*.blend
 assets/*.blend1
 .idea
 screenshot-*.png
-dataset
+/dataset/
