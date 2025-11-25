@@ -4,40 +4,49 @@ use crate::ros2::capture::{CaptureCamera, CaptureConfig};
 use crate::{Armor, InfantryRoot, LocalInfantry};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
+use bevy::render::{Extract, RenderApp};
 use std::collections::HashMap;
 use std::mem::swap;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
+pub enum ArmorOcclusionSystems {
+    Propagate,
+}
 
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(DatasetWriter::new("dataset").unwrap())
+        app.insert_resource(OcclusionConfig::default())
+            .add_systems(Update, insert_corner_data);
+        app.sub_app_mut(RenderApp)
+            .insert_resource(DatasetWriter::new("dataset").unwrap())
             .insert_resource(ArmorOnScreen::default())
-            .insert_resource(OcclusionConfig::default())
-            .add_systems(Update, query.after(TransformSystems::Propagate));
+            .add_systems(
+                ExtractSchedule,
+                query
+                    .after(TransformSystems::Propagate)
+                    .in_set(ArmorOcclusionSystems::Propagate),
+            );
     }
 }
 
-pub fn extract_corners(transform: &GlobalTransform, mesh: &Mesh) -> Option<[Vec3; 4]> {
-    let mut positions: Vec<Vec3> = Vec::new();
+pub fn extract_corners(mesh: &Mesh) -> Option<[Vec3; 4]> {
+    let mut points: Vec<Vec3> = Vec::new();
     for (_attr, values) in mesh.attributes() {
         if let VertexAttributeValues::Float32x3(vec) = values {
-            positions.extend(vec.iter().map(|&p| Vec3::from(p)));
+            points.extend(vec.iter().map(|&p| Vec3::from(p)));
             break;
         }
     }
 
-    if positions.is_empty() {
+    if points.is_empty() {
         return None;
     }
 
-    let point: Vec<Vec3> = positions
-        .iter()
-        .map(|v| transform.transform_point(*v))
-        .collect();
-    if point.len() != 4 {
-        panic!("Expected 4 points but got {}", point.len());
+    if points.len() != 4 {
+        panic!("Expected 4 points but got {}", points.len());
     }
-    Some(point.as_slice().try_into().unwrap())
+    Some(points.as_slice().try_into().unwrap())
 }
 
 pub fn world_to_screen(
@@ -135,66 +144,93 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
 }
 
 #[derive(Resource, Default, DerefMut, Deref)]
-pub struct ArmorOnScreen(pub HashMap<Entity, HashMap<String, [(u32, u32); 4]>>);
+pub struct ArmorOnScreen(pub HashMap<String, HashMap<String, [(u32, u32); 4]>>);
+
+#[derive(Component, Deref, DerefMut, Clone)]
+#[require(Armor)]
+pub struct CornerData(pub [Vec3; 4]);
+
+fn insert_corner_data(
+    mut commands: Commands,
+    children: Query<&Children>,
+    armor_query: Query<&Mesh3d, (With<Armor>, Without<CornerData>)>,
+    infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
+    ass: Res<Assets<Mesh>>,
+) {
+    for infantry in infantry {
+        for armor_entity in children.iter_descendants(infantry) {
+            let Ok(mesh_handle) = armor_query.get(armor_entity) else {
+                continue;
+            };
+            let Some(corners) = extract_corners(ass.get(mesh_handle).unwrap()) else {
+                continue;
+            };
+            commands.entity(armor_entity).insert(CornerData(corners));
+        }
+    }
+}
 
 fn query(
-    children: Query<&Children>,
-    armor_query: Query<(&GlobalTransform, &Mesh3d, &Armor, &ViewVisibility)>,
-    infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
-    camera: Single<(&Projection, &GlobalTransform), With<CaptureCamera>>,
-    config: Res<CaptureConfig>,
+    armor_query: Extract<
+        Query<(
+            Entity,
+            &GlobalTransform,
+            &Armor,
+            &CornerData,
+            &ViewVisibility,
+        )>,
+    >,
+    camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
+    config: Extract<Res<CaptureConfig>>,
     mut armor_screen: ResMut<ArmorOnScreen>,
-    ass: Res<Assets<Mesh>>,
-    mut occlusion: Occlusion,
-    mut dataset: ResMut<DatasetWriter>,
+    mut occlusion: Extract<Occlusion>,
 ) {
     armor_screen.clear();
-    let (projection, camera_global_transform) = camera.into_inner();
+    let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for infantry in infantry {
-        armor_screen.insert(infantry, HashMap::new());
-        let armor_screen = armor_screen.get_mut(&infantry).unwrap();
-
-        for armor_entity in children.iter_descendants(infantry) {
-            let Ok((global_transform, mesh_handle, Armor(armor_name), view_visibility)) =
-                armor_query.get(armor_entity)
-            else {
-                continue;
-            };
-            if !view_visibility.get() {
-                continue;
-            }
-            let Some(corners) = extract_corners(global_transform, ass.get(mesh_handle).unwrap())
-            else {
-                continue;
-            };
-
-            // 屏幕投影
-            let corners: Vec<_> = corners
-                .into_iter()
-                .filter_map(|corner| {
-                    let Some(pos) =
-                        world_to_screen(corner, camera_global_transform, projection, &config)
-                    else {
-                        return None;
-                    };
-                    Some((corner, pos))
-                })
-                .collect();
-            if corners.len() != 4 {
-                continue; // 四角没有完全在屏幕上
-            }
-            let corners_ordered =
-                sort_screen_points([corners[0], corners[1], corners[2], corners[3]]);
-            if !occlusion.visible(camera_pos, armor_entity, &corners_ordered) {
-                continue;
-            }
-
-            // 四角都可见，插入 armor_screen
-            armor_screen.insert(armor_name.clone(), corners_ordered.map(|v| v.1));
+    for (
+        armor_entity,
+        global_transform,
+        Armor(infantry_name, armor_name),
+        corners,
+        view_visibility,
+    ) in armor_query.iter()
+    {
+        if !view_visibility.get() {
+            continue;
         }
 
-        println!("Infantry {} armor count: {}", infantry, armor_screen.len());
+        // 屏幕投影
+        let corners: Vec<_> = corners
+            .into_iter()
+            .map(|corner| global_transform.transform_point(corner))
+            .filter_map(|corner| {
+                let Some(pos) =
+                    world_to_screen(corner, camera_global_transform, projection, &config)
+                else {
+                    return None;
+                };
+                Some((corner, pos))
+            })
+            .collect();
+        if corners.len() != 4 {
+            continue; // 四角没有完全在屏幕上
+        }
+        let corners_ordered = sort_screen_points([corners[0], corners[1], corners[2], corners[3]]);
+        if !occlusion.visible(camera_pos, armor_entity, &corners_ordered) {
+            continue;
+        }
+        armor_screen
+            .entry(infantry_name.clone())
+            .or_insert(default())
+            .insert(armor_name.clone(), corners_ordered.map(|v| v.1));
+    }
+    for (infantry_name, armor_screen) in armor_screen.iter() {
+        println!(
+            "Infantry {} armor count: {}",
+            infantry_name,
+            armor_screen.len()
+        );
     }
 }

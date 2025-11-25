@@ -310,8 +310,8 @@ fn setup(
     ));
 }
 
-#[derive(Component, Clone)]
-pub struct Armor(String);
+#[derive(Component, Clone, Default)]
+pub struct Armor(String, String);
 
 fn setup_vehicle(
     events: On<SceneInstanceReady>,
@@ -358,7 +358,9 @@ fn setup_vehicle(
                     println!("{}", name);
                     if name.starts_with("ARMOR_") && name.ends_with("_P") {
                         println!("{}", name);
-                        insert_all_child(&mut commands, e, &children, || Armor(name.to_string()));
+                        insert_all_child(&mut commands, e, &children, || {
+                            Armor(node.to_string(), name.to_string())
+                        });
                         commands.entity(e).insert(ColliderConstructorHierarchy::new(
                             ColliderConstructor::TrimeshFromMeshWithConfig(
                                 TrimeshFlags::MERGE_DUPLICATE_VERTICES,
