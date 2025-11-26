@@ -82,8 +82,8 @@ pub trait RosTopic {
     const QOS: QosProfile;
 }
 
-macro_rules! define_topic {
-    ($topic:ident, $typ:ty, $url:expr, $qos:expr) => {
+macro_rules! topic {
+    ($topic:ident, $typ:ty, $url:literal, $qos:expr) => {
         pub struct $topic;
         impl RosTopic for $topic {
             type T = $typ;
@@ -92,15 +92,21 @@ macro_rules! define_topic {
         }
     };
     ($topic:ident, $typ:ty, $url:expr) => {
-        define_topic!($topic, $typ, $url, ::r2r::QosProfile::default());
+        topic!($topic, $typ, $url, ::r2r::QosProfile::default());
     };
+    ($($url:literal as $typ:ty as $topic:ident);*$(;)?) => {
+        $(
+            topic!($topic, $typ, $url);
+        )*
+    }
 }
 
-define_topic!(CameraInfoTopic, CameraInfo, "/camera_info");
-define_topic!(ImageRawTopic, Image, "/image_raw");
-define_topic!(ImageCompressedTopic, CompressedImage, "/image_compressed");
-define_topic!(GlobalTransformTopic, TFMessage, "/tf");
-
-define_topic!(GimbalPoseTopic, PoseStamped, "/gimbal_pose");
-define_topic!(OdomPoseTopic, PoseStamped, "/odom_pose");
-define_topic!(CameraPoseTopic, PoseStamped, "/camera_pose");
+topic!(
+    "/camera_info" as CameraInfo as CameraInfoTopic;
+    "/image_raw" as Image as ImageRawTopic;
+    "/image_compressed" as CompressedImage as ImageCompressedTopic;
+    "/tf" as TFMessage as GlobalTransformTopic;
+    "/gimbal_pose" as PoseStamped as GimbalPoseTopic;
+    "/odom_pose" as PoseStamped as OdomPoseTopic;
+    "/camera_pose" as PoseStamped as CameraPoseTopic
+);

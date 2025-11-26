@@ -24,16 +24,16 @@ macro_rules! res_unwrap {
     };
 }
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 struct StopSignal(Arc<AtomicBool>);
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 struct SpinThreadHandle(Option<JoinHandle<()>>);
 
 #[derive(Component)]
 pub struct MainCamera;
 
-#[derive(Resource)]
+#[derive(Resource, Deref, DerefMut)]
 pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
 
 fn capture_rune(
@@ -153,12 +153,12 @@ fn cleanup_ros2_system(
     mut handle_res: ResMut<SpinThreadHandle>,
 ) {
     if exit.read().len() > 0 {
-        stop_signal.0.store(true, Ordering::Release);
-        if let Some(handle) = handle_res.0.take() {
-            println!("Waiting for ROS 2 spin thread to join...");
+        stop_signal.store(true, Ordering::Release);
+        if let Some(handle) = handle_res.take() {
+            info!("Waiting for ROS 2 spin thread to join...");
             match handle.join() {
-                Ok(_) => println!("ROS 2 thread successfully joined. Safe to exit."),
-                Err(_) => eprintln!("WARNING: ROS 2 thread panicked or failed to join."),
+                Ok(_) => info!("ROS 2 thread successfully joined. Safe to exit."),
+                Err(_) => error!("WARNING: ROS 2 thread panicked or failed to join."),
             }
         }
     }

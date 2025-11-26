@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use image::codecs::jpeg::JpegEncoder;
-use image::{ImageBuffer, Rgb};
+use image::ExtendedColorType::Rgb8;
 use std::fs::{create_dir_all, File};
-use std::io::{BufWriter, Write};
+use std::io::ErrorKind::Other;
+use std::io::{BufWriter, Error, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -74,17 +75,18 @@ impl DatasetWriter {
         &mut self,
         height: u32,
         width: u32,
-        data: Vec<u8>,
-        entries: Vec<ArmorEntry>,
+        data: &[u8],
+        entries: &[ArmorEntry],
     ) -> std::io::Result<()> {
         let frame = self.next_frame_name();
-
-        let img_path = self.image_dir.join(format!("{}.jpg", frame));
-        self.save_image(height, width, data, &img_path)?;
-
-        let label_path = self.label_dir.join(format!("{}.txt", frame));
-        let file = File::create(label_path)?;
-        let mut writer = BufWriter::new(file);
+        self.save_image(
+            height,
+            width,
+            data,
+            &self.image_dir.join(format!("{}.jpg", frame)),
+        )?;
+        let mut writer =
+            BufWriter::new(File::create(self.label_dir.join(format!("{}.txt", frame)))?);
 
         for entry in entries {
             write!(
@@ -102,17 +104,10 @@ impl DatasetWriter {
         Ok(())
     }
 
-    fn save_image(
-        &self,
-        height: u32,
-        width: u32,
-        data: Vec<u8>,
-        path: &Path,
-    ) -> std::io::Result<()> {
-        let buffer = ImageBuffer::<Rgb<u8>, _>::from_raw(width, height, data).unwrap();
+    fn save_image(&self, height: u32, width: u32, data: &[u8], path: &Path) -> std::io::Result<()> {
         JpegEncoder::new(&mut File::create(path)?)
-            .encode_image(&buffer)
-            .unwrap();
+            .encode(data, width, height, Rgb8)
+            .map_err(|e| Error::new(Other, e))?;
         Ok(())
     }
 }

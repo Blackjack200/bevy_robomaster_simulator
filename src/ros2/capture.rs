@@ -133,8 +133,6 @@ fn setup_copier(render_device: Res<RenderDevice>, mut copier: ResMut<ImageCopier
 }
 
 fn receive_image_from_buffer(
-    t: Res<Time>,
-    mut r: ResMut<RateLimiter>,
     image_copier: Res<ImageCopier>,
     render_device: Res<RenderDevice>,
     config: Res<CaptureConfig>,
@@ -142,105 +140,98 @@ fn receive_image_from_buffer(
     dw: Res<DatasetHandle>,
     mut dd: ResMut<ArmorOnScreen>,
 ) {
-    r.tick(t.delta());
-    if !r.is_finished() {
-        return;
-    }
-    r.reset();
     let ctx = Arc::new(ctx.clone());
     let config = Arc::new(config.clone());
     let (width, height, texture_format) = (config.width, config.height, config.texture_format);
 
-    if image_copier
-        .copying
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_ok()
-    {
-        let buffer = image_copier.buffer.clone();
-        if buffer.is_none() {
-            image_copier.copying.store(false, Ordering::Release);
-            return;
-        }
-        let buffer = buffer.unwrap();
-        let render_device = render_device.clone();
-        let copying = image_copier.copying.clone();
-        let ctx = ctx.clone();
-        let config = config.clone();
-        let armor = dd.0.drain().fold(vec![], |mut v, (a, n)| {
-            for (k, ent) in n {
-                v.push(ArmorEntry {
-                    color: ArmorColor::Blue,
-                    size: ArmorSize::Small,
-                    label: ArmorLabel::Three,
-                    points: ent.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
-                });
-            }
-            v
-        });
-        let dw = dw.clone();
-        AsyncComputeTaskPool::get()
-            .spawn(async move {
-                let buffer_slice = buffer.slice(..);
-                let (s, r) = crossbeam_channel::bounded(1);
-
-                buffer_slice.map_async(MapMode::Read, move |r| match r {
-                    Ok(r) => s.send(r).expect("Failed to send map update"),
-                    Err(err) => panic!("Failed to map buffer {err}"),
-                });
-
-                render_device
-                    .poll(PollType::Wait)
-                    .expect("Failed to poll device for map async");
-                r.recv().expect("Failed to receive the map_async message");
-
-                let mut image_data = buffer_slice.get_mapped_range().to_vec();
-                buffer.unmap();
-                copying.store(false, Ordering::Release);
-
-                let image_data = {
-                    let row_bytes = width as usize * texture_format.pixel_size().unwrap();
-                    let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
-                    if row_bytes != aligned_row_bytes {
-                        image_data = image_data
-                            .chunks(aligned_row_bytes)
-                            .take(height as usize)
-                            .flat_map(|row| &row[..row_bytes.min(row.len())])
-                            .cloned()
-                            .collect();
-                    }
-                    let mut bevy_image = Image::new_target_texture(width, height, texture_format);
-                    bevy_image.data = Some(image_data);
-                    bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
-                };
-                let optical_frame_hdr = Header {
-                    stamp: Clock::to_builtin_time(&ctx.clock.lock().unwrap().get_now().unwrap()),
-                    frame_id: "camera_optical_frame".to_string(),
-                };
-                /*ctx.image_compressed.publish(compress_image(
-                    optical_frame_hdr.clone(),
-                    width,
-                    height,
-                    image_data.clone(),
-                ));*/
-                let (camera_info, image) = compute_camera(
-                    config.fov_y,
-                    optical_frame_hdr,
-                    config.width,
-                    config.height,
-                    image_data.clone(),
-                );
-                if armor.len() > 0 {
-                    info!("wrote 1 dataset entry: {}", armor.len());
-                    dw.lock()
-                        .unwrap()
-                        .write_entry(config.height, config.width, image_data, armor)
-                        .unwrap();
-                }
-                ctx.camera_info.publish(camera_info);
-                ctx.image_raw.publish(image);
-            })
-            .detach();
+    let buffer = image_copier.buffer.clone();
+    if buffer.is_none() {
+        image_copier.copying.store(false, Ordering::Release);
+        return;
     }
+    let buffer = buffer.unwrap();
+    let render_device = render_device.clone();
+    let copying = image_copier.copying.clone();
+    let ctx = ctx.clone();
+    let config = config.clone();
+
+    let len = dd.0.len();
+    let armor = dd.0.drain().fold(Vec::with_capacity(len), |mut v, (a, n)| {
+        for (k, ent) in n {
+            v.push(ArmorEntry {
+                color: ArmorColor::Blue,
+                size: ArmorSize::Small,
+                label: ArmorLabel::Three,
+                points: ent.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
+            });
+        }
+        v
+    });
+    let dw = dw.clone();
+    AsyncComputeTaskPool::get()
+        .spawn(async move {
+            let buffer_slice = buffer.slice(..);
+            let (s, r) = crossbeam_channel::bounded(1);
+
+            buffer_slice.map_async(MapMode::Read, move |r| match r {
+                Ok(r) => s.send(r).expect("Failed to send map update"),
+                Err(err) => panic!("Failed to map buffer {err}"),
+            });
+
+            render_device
+                .poll(PollType::Wait)
+                .expect("Failed to poll device for map async");
+            r.recv().expect("Failed to receive the map_async message");
+
+            let mut image_data = buffer_slice.get_mapped_range().to_vec();
+            buffer.unmap();
+            copying.store(false, Ordering::Release);
+
+            let image_data = {
+                let row_bytes = width as usize * texture_format.pixel_size().unwrap();
+                let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
+                if row_bytes != aligned_row_bytes {
+                    image_data = image_data
+                        .chunks(aligned_row_bytes)
+                        .take(height as usize)
+                        .flat_map(|row| &row[..row_bytes.min(row.len())])
+                        .cloned()
+                        .collect();
+                }
+                let mut bevy_image = Image::new_target_texture(width, height, texture_format);
+                bevy_image.data = Some(image_data);
+                bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
+            };
+            let image_data = image_data.as_slice();
+
+            let optical_frame_hdr = Header {
+                stamp: Clock::to_builtin_time(&ctx.clock.lock().unwrap().get_now().unwrap()),
+                frame_id: "camera_optical_frame".to_string(),
+            };
+            /*ctx.image_compressed.publish(compress_image(
+                optical_frame_hdr.clone(),
+                width,
+                height,
+                image_data.clone(),
+            ));*/
+            if armor.len() > 0 {
+                info!("wrote 1 dataset entry: {}", armor.len());
+                dw.lock()
+                    .unwrap()
+                    .write_entry(config.height, config.width, image_data, &armor)
+                    .unwrap();
+            }
+            let (camera_info, image) = compute_camera(
+                config.fov_y,
+                optical_frame_hdr,
+                config.width,
+                config.height,
+                image_data,
+            );
+            ctx.camera_info.publish(camera_info);
+            ctx.image_raw.publish(image);
+        })
+        .detach();
 }
 
 #[derive(Resource, Clone)]
@@ -260,7 +251,7 @@ pub struct RosCapturePlugin {
 struct ImageHandle(Handle<Image>);
 
 #[derive(Resource, Deref, DerefMut)]
-struct RateLimiter(Timer);
+struct RateLimiter(Mutex<Timer>);
 
 impl Plugin for RosCapturePlugin {
     fn build(&self, app: &mut App) {
@@ -291,13 +282,29 @@ impl Plugin for RosCapturePlugin {
             .insert_resource(self.config.clone())
             .insert_resource(self.context.clone())
             .insert_resource(ImageCopier::new(render_target_handle.clone(), extent))
-            .insert_resource(RateLimiter(Timer::new(
+            .insert_resource(RateLimiter(Mutex::new(Timer::new(
                 Duration::from_secs_f64(1.0 / 60.0),
                 TimerMode::Once,
-            )))
+            ))))
             .add_systems(
                 Render,
-                (setup_copier, receive_image_from_buffer)
+                (
+                    setup_copier,
+                    receive_image_from_buffer.run_if(
+                        |t: Res<Time>, image_copier: Res<ImageCopier>, r: Res<RateLimiter>| {
+                            let mut r = r.lock().unwrap();
+                            r.tick(t.delta());
+                            if !r.is_finished() {
+                                return false;
+                            }
+                            r.reset();
+                            image_copier
+                                .copying
+                                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                                .is_ok()
+                        },
+                    ),
+                )
                     .chain()
                     .after(RenderSystems::Render),
             );
@@ -346,7 +353,7 @@ fn compute_camera(
     hdr: Header,
     width: u32,
     height: u32,
-    data: Vec<u8>,
+    data: &[u8],
 ) -> (CameraInfo, r2r::sensor_msgs::msg::Image) {
     let fov_y = fov_y as f64;
     let (width, height) = (width, height);
@@ -392,7 +399,7 @@ fn compute_camera(
             encoding: "rgb8".to_string(),
             is_bigendian: 0,
             step: width * 3,
-            data,
+            data: Vec::from(data),
         },
     )
 }

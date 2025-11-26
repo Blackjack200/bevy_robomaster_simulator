@@ -28,6 +28,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Mutex;
 
 #[derive(Component)]
 struct MainCamera {
@@ -77,8 +78,8 @@ enum GameLayer {
     Environment,
 }
 
-#[derive(Resource)]
-struct Cooldown(Timer);
+#[derive(Resource, Deref, DerefMut)]
+struct Cooldown(Mutex<Timer>);
 
 /// Creates help text at the bottom of the screen.
 fn create_help_text() -> Text {
@@ -135,7 +136,10 @@ fn main() {
         .insert_resource(CameraMode(FollowingType::Robot))
         .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
         .insert_resource(SubstepCount(10))
-        .insert_resource(Cooldown(Timer::from_seconds(0.1, TimerMode::Once)))
+        .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
+            0.1,
+            TimerMode::Once,
+        ))))
         .add_systems(Startup, (setup, setup_projectile))
         .add_observer(setup_vehicle)
         .add_observer(setup_collision)
@@ -146,24 +150,35 @@ fn main() {
             (
                 update_help_text,
                 following_controls,
-                vehicle_controls,
+                vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
                 remote_vehicle_controls,
                 gimbal_controls,
                 remote_gimbal_controls,
-                freecam_controls,
-                update_camera_follow,
-                screenshot_on_f2,
+                freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
+                update_camera_follow.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
+                screenshot_on_f2
+                    .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
                 screenshot_saving,
             ),
         )
         .add_systems(
             PostUpdate,
-            projectile_launch.after(TransformSystems::Propagate),
+            projectile_launch.after(TransformSystems::Propagate).run_if(
+                |time: Res<Time>, cooldown: Res<Cooldown>, keyboard: Res<ButtonInput<KeyCode>>| {
+                    let mut cooldown = cooldown.lock().unwrap();
+                    cooldown.tick(time.delta());
+                    if !cooldown.is_finished() {
+                        return false;
+                    }
+                    cooldown.reset();
+                    return keyboard.pressed(KeyCode::Space);
+                },
+            ),
         )
         .run();
 }
 
-#[derive(Component)]
+#[derive(Component, Deref, DerefMut)]
 struct PreciousCollision(
     HashMap<String, (ColliderConstructorHierarchy, CollisionLayers, Visibility)>,
 );
@@ -284,10 +299,7 @@ fn setup_vehicle(
     children: Query<&Children>,
     root_query: Query<(Entity, Option<&LocalInfantry>), With<InfantryRoot>>,
     secondary_query: Query<&ChildOf, (Without<InfantryRoot>, Without<SceneInstance>)>,
-    node_query: Query<
-        (Entity, &Name, &ChildOf, &Transform),
-        (Without<InfantryRoot>, Without<SceneInstance>),
-    >,
+    node_query: Query<(Entity, &Name, &ChildOf), (Without<InfantryRoot>, Without<SceneInstance>)>,
 ) {
     let root = events.entity;
     if root_query.get(root).is_err() {
@@ -322,7 +334,7 @@ fn setup_vehicle(
 
     let mut despawn = HashSet::new();
 
-    for (node, name, &ChildOf(secondary), transform) in node_query {
+    for (node, name, &ChildOf(secondary)) in node_query {
         let Ok(&ChildOf(root2)) = secondary_query.get(secondary) else {
             continue;
         };
@@ -352,7 +364,7 @@ fn setup_vehicle(
                             ),
                         ));
                     }
-                    for (ee, n, &ChildOf(r), _) in node_query {
+                    for (ee, n, &ChildOf(r)) in node_query {
                         if r == e {
                             stack.push_back((ee, n));
                         }
@@ -363,7 +375,7 @@ fn setup_vehicle(
                 ent.insert(InfantryGimbal::default());
                 if is_local {
                     children.iter_descendants(node).for_each(|e| {
-                        if let Ok((_, name, _, _)) = node_query.get(e) {
+                        if let Ok((_, name, _)) = node_query.get(e) {
                             match name.as_str() {
                                 "SHOT_DIRECTION" => {
                                     commands.entity(e).insert(InfantryLaunchOffset);
@@ -407,12 +419,9 @@ fn setup_projectile(
 struct ProjectileSetting(Handle<Mesh>, Handle<StandardMaterial>);
 
 fn projectile_launch(
-    time: Res<Time>,
     _asset_server: Res<AssetServer>,
-    mut cooldown: ResMut<Cooldown>,
     mut commands: Commands,
     setting: Res<ProjectileSetting>,
-    keyboard: Res<ButtonInput<KeyCode>>,
     infantry: Single<
         (&Transform, &LinearVelocity, &AngularVelocity),
         (With<InfantryRoot>, With<LocalInfantry>),
@@ -423,48 +432,41 @@ fn projectile_launch(
     >,
     launch_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryLaunchOffset>)>,
 ) {
-    cooldown.0.tick(time.delta());
-    if !cooldown.0.is_finished() {
+    increase_launch();
+    let direction = (gimbal.0.rotation() * launch_offset.rotation)
+        .mul_vec3(Vec3::Y)
+        .normalize_or_zero();
+    if direction == Vec3::ZERO {
         return;
     }
-    cooldown.0.reset();
-    if keyboard.pressed(KeyCode::Space) {
-        increase_launch();
-        let direction = (gimbal.0.rotation() * launch_offset.rotation)
-            .mul_vec3(Vec3::Y)
-            .normalize_or_zero();
-        if direction == Vec3::ZERO {
-            return;
-        }
-        let vel = infantry.1.0 + direction * 25.0;
-        commands.spawn((
-            RigidBody::Dynamic,
-            Collider::sphere(44.5 * 0.001 / 2.0),
-            Mass(44.5 * 0.001),
-            Friction::new(1.1),
-            Restitution::ZERO,
-            LinearDamping(0.05),
-            CollisionLayers::new(
+    let vel = infantry.1.0 + direction * 25.0;
+    commands.spawn((
+        RigidBody::Dynamic,
+        Collider::sphere(44.5 * 0.001 / 2.0),
+        Mass(44.5 * 0.001),
+        Friction::new(1.1),
+        Restitution::ZERO,
+        LinearDamping(0.05),
+        CollisionLayers::new(
+            GameLayer::ProjectileSelf,
+            [
+                GameLayer::Default,
+                GameLayer::Vehicle,
                 GameLayer::ProjectileSelf,
-                [
-                    GameLayer::Default,
-                    GameLayer::Vehicle,
-                    GameLayer::ProjectileSelf,
-                    GameLayer::ProjectileOther,
-                    GameLayer::Environment,
-                ],
-            ),
-            Mesh3d(setting.0.clone()),
-            MeshMaterial3d(setting.1.clone()),
-            LinearVelocity(vel),
-            AngularVelocity(infantry.2.0),
-            Transform::IDENTITY.with_translation(
-                infantry.0.translation + (gimbal.0.rotation() * launch_offset.translation),
-            ),
-            //AudioPlayer::new(asset_server.load("projectile_launch.ogg")),
-            Projectile,
-        ));
-    }
+                GameLayer::ProjectileOther,
+                GameLayer::Environment,
+            ],
+        ),
+        Mesh3d(setting.0.clone()),
+        MeshMaterial3d(setting.1.clone()),
+        LinearVelocity(vel),
+        AngularVelocity(infantry.2.0),
+        Transform::IDENTITY.with_translation(
+            infantry.0.translation + (gimbal.0.rotation() * launch_offset.translation),
+        ),
+        //AudioPlayer::new(asset_server.load("projectile_launch.ogg")),
+        Projectile,
+    ));
 }
 
 fn setup_collision(
@@ -508,7 +510,6 @@ const MAX_VEHICLE_VELOCITY: f32 = 6.0;
 
 fn vehicle_controls(
     time: Res<Time>,
-    mode: Res<CameraMode>,
     keyboard: Res<ButtonInput<KeyCode>>,
     infantry: Single<(Forces, &Mass), (With<InfantryRoot>, With<LocalInfantry>)>,
     gimbal: Single<
@@ -520,10 +521,6 @@ fn vehicle_controls(
         (With<LocalInfantry>, Without<InfantryGimbal>),
     >,
 ) {
-    if mode.0 == FollowingType::Free {
-        return;
-    }
-
     let mut input = Vec2::ZERO;
     if keyboard.pressed(KeyCode::KeyW) {
         input.y += 1.0;
@@ -572,7 +569,6 @@ fn vehicle_controls(
 
 fn remote_vehicle_controls(
     time: Res<Time>,
-    _mode: Res<CameraMode>,
     keyboard: Res<ButtonInput<KeyCode>>,
     infantry: Single<Forces, (With<InfantryRoot>, Without<LocalInfantry>)>,
     gimbal: Single<
@@ -797,18 +793,12 @@ fn freecam_controls(
     }
 }
 
-fn screenshot_on_f2(
-    mut commands: Commands,
-    input: Res<ButtonInput<KeyCode>>,
-    mut counter: Local<u32>,
-) {
-    if input.just_pressed(KeyCode::F2) {
-        let path = format!("./screenshot-{}.png", *counter);
-        *counter += 1;
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(path));
-    }
+fn screenshot_on_f2(mut commands: Commands, mut counter: Local<u32>) {
+    let path = format!("./screenshot-{}.png", *counter);
+    *counter += 1;
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(path));
 }
 
 fn screenshot_saving(
