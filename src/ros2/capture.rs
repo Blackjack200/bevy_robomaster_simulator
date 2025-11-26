@@ -1,5 +1,5 @@
 use crate::dataset::prelude::{ArmorOnScreen, DatasetHandle};
-use crate::dataset::writer::{ArmorColor, ArmorEntry, ArmorLabel};
+use crate::dataset::writer::{ArmorColor, ArmorEntry, ArmorLabel, ArmorSize};
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
@@ -170,6 +170,7 @@ fn receive_image_from_buffer(
             for (k, ent) in n {
                 v.push(ArmorEntry {
                     color: ArmorColor::Blue,
+                    size: ArmorSize::Small,
                     label: ArmorLabel::Three,
                     points: ent.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
                 });

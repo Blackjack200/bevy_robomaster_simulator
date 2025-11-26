@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct ArmorEntry {
     pub color: ArmorColor,
+    pub size: ArmorSize,
     pub label: ArmorLabel,
     pub points: [Vec2; 4],
 }
@@ -23,15 +24,22 @@ pub enum ArmorColor {
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
+pub enum ArmorSize {
+    Small = 0,
+    Large = 1,
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone)]
 pub enum ArmorLabel {
     G = 0,
     One = 1,
     Two = 2,
     Three = 3,
     Four = 4,
-    O = 5,
-    Bs = 6,
-    Bb = 7,
+    Five = 5,
+    O = 6,
+    Base = 7,
 }
 
 #[derive(Resource)]
@@ -79,7 +87,11 @@ impl DatasetWriter {
         let mut writer = BufWriter::new(file);
 
         for entry in entries {
-            write!(writer, "{} {}", entry.color as u8, entry.label as u8)?;
+            write!(
+                writer,
+                "{} {} {}",
+                entry.color as u8, entry.size as u8, entry.label as u8
+            )?;
             for p in &entry.points {
                 write!(writer, " {:.6} {:.6}", p.x, p.y)?;
             }
