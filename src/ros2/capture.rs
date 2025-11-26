@@ -177,7 +177,7 @@ fn receive_image_from_buffer(
             }
             v
         });
-        let mut dw = dw.clone();
+        let dw = dw.clone();
         AsyncComputeTaskPool::get()
             .spawn(async move {
                 let buffer_slice = buffer.slice(..);

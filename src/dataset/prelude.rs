@@ -32,7 +32,8 @@ impl Plugin for DatasetPlugin {
                 query
                     .after(TransformSystems::Propagate)
                     .in_set(ArmorOcclusionSystems::Propagate)
-                    .before(RenderSystems::Render),
+                    .before(RenderSystems::Render)
+                    .run_if(|key: Extract<Res<ButtonInput<KeyCode>>>| key.pressed(KeyCode::Digit1)),
             );
     }
 }
@@ -187,15 +188,11 @@ fn query(
             &ViewVisibility,
         )>,
     >,
-    key: Extract<Res<ButtonInput<KeyCode>>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     config: Extract<Res<CaptureConfig>>,
     mut armor_screen: ResMut<ArmorOnScreen>,
     mut occlusion: Extract<Occlusion>,
 ) {
-    if !key.pressed(KeyCode::Digit1) {
-        return;
-    }
     armor_screen.clear();
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
