@@ -708,7 +708,7 @@ fn following_controls(mut mode: ResMut<CameraMode>, keyboard: Res<ButtonInput<Ke
 
 fn update_camera_follow(
     camera_query: Single<(&mut Transform, &MainCamera), Without<LocalInfantry>>,
-    infantry: Single<&Transform, (With<InfantryRoot>, With<LocalInfantry>)>,
+    infantry: Single<&Transform, (With<InfantryRoot>, Changed<Transform>, With<LocalInfantry>)>,
     gimbal: Single<&Transform, (With<LocalInfantry>, With<InfantryGimbal>)>,
     view_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryViewOffset>)>,
     mode: Res<CameraMode>,
