@@ -1,7 +1,7 @@
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{
-    add_tf_frame, arc_mutex, pose, publisher, robomaster::power_rune::{PowerRune, RuneIndex}, InfantryGimbal, InfantryViewOffset,
+    add_tf_frame, arc_mutex, pose, publisher, robomaster::power_rune::{PowerRune, RuneIndex}, InfantryGimbal, InfantryLaunchOffset,
     LocalInfantry,
 };
 use bevy::prelude::*;
@@ -39,7 +39,7 @@ pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
 fn capture_rune(
     camera: Single<&GlobalTransform, With<MainCamera>>,
     gimbal: Single<&GlobalTransform, (With<LocalInfantry>, With<InfantryGimbal>)>,
-    _view_offset: Single<&InfantryViewOffset, With<LocalInfantry>>,
+    muzzle_offset: Single<&GlobalTransform, (With<InfantryLaunchOffset>, With<LocalInfantry>)>,
 
     runes: Query<(&GlobalTransform, &PowerRune)>,
     targets: Query<(&GlobalTransform, &RuneIndex, &Name)>,
@@ -88,7 +88,16 @@ fn capture_rune(
         Vec3::ZERO,
         gimbal.rotation()
     );
-    let cam_rel = cam_transform.reparented_to(gimbal.into_inner());
+    let gimbal = gimbal.into_inner();
+    let cam_rel = cam_transform.reparented_to(gimbal);
+    let muzzle_rel = muzzle_offset.reparented_to(gimbal);
+    add_tf_frame!(
+        transform_stamped,
+        gimbal_hdr.clone(),
+        "muzzle_link",
+        muzzle_rel.translation,
+        muzzle_rel.rotation
+    );
     add_tf_frame!(
         transform_stamped,
         gimbal_hdr.clone(),

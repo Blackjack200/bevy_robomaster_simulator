@@ -1,3 +1,5 @@
+use crate::dataset::prelude::{ArmorOnScreen, DatasetHandle};
+use crate::dataset::writer::{ArmorColor, ArmorEntry, ArmorLabel};
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
@@ -137,6 +139,8 @@ fn receive_image_from_buffer(
     render_device: Res<RenderDevice>,
     config: Res<CaptureConfig>,
     ctx: Res<RosCaptureContext>,
+    dw: Res<DatasetHandle>,
+    mut dd: ResMut<ArmorOnScreen>,
 ) {
     r.tick(t.delta());
     if !r.is_finished() {
@@ -162,6 +166,17 @@ fn receive_image_from_buffer(
         let copying = image_copier.copying.clone();
         let ctx = ctx.clone();
         let config = config.clone();
+        let armor = dd.0.drain().fold(vec![], |mut v, (a, n)| {
+            for (k, ent) in n {
+                v.push(ArmorEntry {
+                    color: ArmorColor::Blue,
+                    label: ArmorLabel::Three,
+                    points: ent.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
+                });
+            }
+            v
+        });
+        let mut dw = dw.clone();
         AsyncComputeTaskPool::get()
             .spawn(async move {
                 let buffer_slice = buffer.slice(..);
@@ -211,8 +226,15 @@ fn receive_image_from_buffer(
                     optical_frame_hdr,
                     config.width,
                     config.height,
-                    image_data,
+                    image_data.clone(),
                 );
+                if armor.len() > 0 {
+                    info!("wrote 1 dataset entry: {}", armor.len());
+                    dw.lock()
+                        .unwrap()
+                        .write_entry(config.height, config.width, image_data, armor)
+                        .unwrap();
+                }
                 ctx.camera_info.publish(camera_info);
                 ctx.image_raw.publish(image);
             })
@@ -274,11 +296,9 @@ impl Plugin for RosCapturePlugin {
             )))
             .add_systems(
                 Render,
-                (
-                    setup_copier.after(RenderSystems::Render),
-                    receive_image_from_buffer.after(RenderSystems::Render),
-                )
-                    .chain(),
+                (setup_copier, receive_image_from_buffer)
+                    .chain()
+                    .after(RenderSystems::Render),
             );
     }
 }

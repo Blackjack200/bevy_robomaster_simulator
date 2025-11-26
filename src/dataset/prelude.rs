@@ -4,14 +4,18 @@ use crate::ros2::capture::{CaptureCamera, CaptureConfig};
 use crate::{Armor, InfantryRoot, LocalInfantry};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use bevy::render::{Extract, RenderApp};
+use bevy::render::{Extract, RenderApp, RenderSystems};
 use std::collections::HashMap;
 use std::mem::swap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
 pub enum ArmorOcclusionSystems {
     Propagate,
 }
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
 
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
@@ -19,13 +23,16 @@ impl Plugin for DatasetPlugin {
         app.insert_resource(OcclusionConfig::default())
             .add_systems(Update, insert_corner_data);
         app.sub_app_mut(RenderApp)
-            .insert_resource(DatasetWriter::new("dataset").unwrap())
+            .insert_resource(DatasetHandle(Arc::new(Mutex::new(
+                DatasetWriter::new("dataset").unwrap(),
+            ))))
             .insert_resource(ArmorOnScreen::default())
             .add_systems(
                 ExtractSchedule,
                 query
                     .after(TransformSystems::Propagate)
-                    .in_set(ArmorOcclusionSystems::Propagate),
+                    .in_set(ArmorOcclusionSystems::Propagate)
+                    .before(RenderSystems::Render),
             );
     }
 }
@@ -180,11 +187,15 @@ fn query(
             &ViewVisibility,
         )>,
     >,
+    key: Extract<Res<ButtonInput<KeyCode>>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     config: Extract<Res<CaptureConfig>>,
     mut armor_screen: ResMut<ArmorOnScreen>,
     mut occlusion: Extract<Occlusion>,
 ) {
+    if !key.pressed(KeyCode::Digit1) {
+        return;
+    }
     armor_screen.clear();
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();

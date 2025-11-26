@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul, Sub};
 
 use bevy::{
-    ecs::system::{SystemParam, lifetimeless::Read},
+    ecs::system::{lifetimeless::Read, SystemParam},
     prelude::*,
 };
 
@@ -16,8 +16,8 @@ pub struct OcclusionConfig {
 impl Default for OcclusionConfig {
     fn default() -> Self {
         Self {
-            samples_per_vertex: 2,
-            visibility_threshold: 0.8,
+            samples_per_vertex: 4,
+            visibility_threshold: 0.5,
         }
     }
 }
@@ -65,10 +65,10 @@ impl<'w, 's> Occlusion<'w, 's> {
                 filter: &|e| {
                     e != armor_entity
                         && !self.child_of.iter_ancestors(e).any(|parent| {
-                        self.names
-                            .get(parent)
-                            .is_ok_and(|v| v.starts_with("ARMOR_") && v.ends_with("_L"))
-                    })
+                            self.names
+                                .get(parent)
+                                .is_ok_and(|v| v.starts_with("ARMOR_") && v.ends_with("_L"))
+                        })
                 },
                 early_exit_test: &|hit| {
                     if let Ok(transform) = self.global_transforms.get(hit) {

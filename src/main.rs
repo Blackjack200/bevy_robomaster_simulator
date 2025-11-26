@@ -17,7 +17,7 @@ use avian3d::prelude::*;
 use bevy::camera::Exposure;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
-use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
+use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
 use bevy::{
     anti_alias::fxaa::Fxaa,
@@ -40,7 +40,7 @@ struct LocalInfantry;
 #[derive(Component)]
 struct InfantryRoot;
 
-#[derive(Resource, PartialEq)]
+#[derive(Resource, PartialEq, Deref, DerefMut)]
 struct CameraMode(pub FollowingType);
 
 #[derive(PartialEq)]
@@ -62,10 +62,10 @@ struct InfantryGimbal {
 }
 
 #[derive(Component)]
-struct InfantryViewOffset(Transform);
+struct InfantryViewOffset;
 
 #[derive(Component)]
-struct InfantryLaunchOffset(Transform);
+struct InfantryLaunchOffset;
 
 #[derive(PhysicsLayer, Default, Clone, Copy, Debug)]
 enum GameLayer {
@@ -242,24 +242,6 @@ fn setup(
     ));
 
     commands.spawn((
-        RigidBody::Dynamic,
-        Collider::cylinder(0.2593615, 0.433951),
-        CollisionMargin(0.001),
-        CollisionLayers::new(
-            GameLayer::Vehicle,
-            [
-                GameLayer::Default,
-                GameLayer::Vehicle,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        ),
-        Mass(20.0),
-        Friction::new(0.5),
-        Restitution::ZERO,
-        LinearDamping(0.0),
-        AngularDamping(109.8),
-        LockedAxes::new().lock_rotation_x().lock_rotation_z(),
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(0.0, 1.0, 0.0),
         InfantryRoot,
@@ -267,23 +249,6 @@ fn setup(
     ));
 
     commands.spawn((
-        RigidBody::Dynamic,
-        Collider::cylinder(0.2593615, 0.433951),
-        CollisionLayers::new(
-            GameLayer::Vehicle,
-            [
-                GameLayer::Default,
-                GameLayer::Vehicle,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        ),
-        Mass(20.0),
-        Friction::new(0.5),
-        Restitution::ZERO,
-        LinearDamping(0.0),
-        AngularDamping(109.8),
-        LockedAxes::new().lock_rotation_x().lock_rotation_z(),
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
         InfantryRoot,
@@ -329,6 +294,31 @@ fn setup_vehicle(
         return;
     }
     let is_local = root_query.get(root).unwrap().1.is_some();
+    if is_local {
+        children.iter_descendants(root).for_each(|e| {
+            commands.entity(e).insert(LocalInfantry);
+        });
+    }
+    commands.entity(root).insert((
+        RigidBody::Dynamic,
+        Collider::cylinder(0.2593615, 0.433951),
+        CollisionMargin(0.001),
+        CollisionLayers::new(
+            GameLayer::Vehicle,
+            [
+                GameLayer::Default,
+                GameLayer::Vehicle,
+                GameLayer::ProjectileOther,
+                GameLayer::Environment,
+            ],
+        ),
+        Mass(20.0),
+        Friction::new(0.5),
+        Restitution::ZERO,
+        LinearDamping(0.0),
+        AngularDamping(109.8),
+        LockedAxes::new().lock_rotation_x().lock_rotation_z(),
+    ));
 
     let mut despawn = HashSet::new();
 
@@ -343,9 +333,6 @@ fn setup_vehicle(
         commands.entity(secondary).remove_child(node);
         commands.entity(root).add_child(node);
         let mut ent = commands.entity(node);
-        if is_local {
-            ent.insert(LocalInfantry);
-        }
         match name.as_str() {
             "BASE" => {
                 ent.insert(InfantryChassis::default());
@@ -355,9 +342,7 @@ fn setup_vehicle(
                     if !set.insert(e) {
                         continue;
                     }
-                    println!("{}", name);
                     if name.starts_with("ARMOR_") && name.ends_with("_P") {
-                        println!("{}", name);
                         insert_all_child(&mut commands, e, &children, || {
                             Armor(node.to_string(), name.to_string())
                         });
@@ -376,12 +361,21 @@ fn setup_vehicle(
             }
             "GIMBAL" => {
                 ent.insert(InfantryGimbal::default());
-            }
-            "SHOT_DIRECTION" => {
-                ent.insert(InfantryLaunchOffset(transform.clone()));
-            }
-            "CAM_DIRECTION" => {
-                ent.insert(InfantryViewOffset(transform.clone()));
+                if is_local {
+                    children.iter_descendants(node).for_each(|e| {
+                        if let Ok((_, name, _, _)) = node_query.get(e) {
+                            match name.as_str() {
+                                "SHOT_DIRECTION" => {
+                                    commands.entity(e).insert(InfantryLaunchOffset);
+                                }
+                                "CAM_DIRECTION" => {
+                                    commands.entity(e).insert(InfantryViewOffset);
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+                }
             }
             _ => {}
         }
@@ -427,7 +421,7 @@ fn projectile_launch(
         (&GlobalTransform, &InfantryGimbal),
         (With<LocalInfantry>, Without<InfantryChassis>),
     >,
-    launch_offset: Single<&InfantryLaunchOffset, With<LocalInfantry>>,
+    launch_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryLaunchOffset>)>,
 ) {
     cooldown.0.tick(time.delta());
     if !cooldown.0.is_finished() {
@@ -436,7 +430,7 @@ fn projectile_launch(
     cooldown.0.reset();
     if keyboard.pressed(KeyCode::Space) {
         increase_launch();
-        let direction = (gimbal.0.rotation() * launch_offset.0.rotation)
+        let direction = (gimbal.0.rotation() * launch_offset.rotation)
             .mul_vec3(Vec3::Y)
             .normalize_or_zero();
         if direction == Vec3::ZERO {
@@ -465,7 +459,7 @@ fn projectile_launch(
             LinearVelocity(vel),
             AngularVelocity(infantry.2.0),
             Transform::IDENTITY.with_translation(
-                infantry.0.translation + (gimbal.0.rotation() * launch_offset.0.translation),
+                infantry.0.translation + (gimbal.0.rotation() * launch_offset.translation),
             ),
             //AudioPlayer::new(asset_server.load("projectile_launch.ogg")),
             Projectile,
@@ -491,7 +485,6 @@ fn setup_collision(
             println!("{}", name);
             commands.entity(e).insert((
                 RigidBody::Static,
-                Mass(0.0),
                 Restitution::ZERO,
                 constructor.clone(),
                 CollisionMargin(0.001),
@@ -721,7 +714,7 @@ fn update_camera_follow(
     camera_query: Single<(&mut Transform, &MainCamera), Without<LocalInfantry>>,
     infantry: Single<&Transform, (With<InfantryRoot>, With<LocalInfantry>)>,
     gimbal: Single<&Transform, (With<LocalInfantry>, With<InfantryGimbal>)>,
-    view_offset: Single<&InfantryViewOffset, With<LocalInfantry>>,
+    view_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryViewOffset>)>,
     mode: Res<CameraMode>,
 ) {
     let gimbal_transform = gimbal.into_inner();
@@ -729,9 +722,16 @@ fn update_camera_follow(
 
     match mode.0 {
         FollowingType::Robot => {
-            camera_transform.translation = infantry.translation
-                + (infantry.rotation * gimbal_transform.rotation) * view_offset.0.translation;
-            camera_transform.rotation = infantry.rotation * gimbal_transform.rotation;
+            let view_offset_transform = view_offset.into_inner();
+
+            let gimbal_world_rotation = infantry.rotation * gimbal_transform.rotation;
+
+            // 步骤2: 计算 ViewOffset 在世界空间的位置
+            // ViewOffset 的世界位置 = 机器人位置 + Gimbal世界旋转 * ViewOffset局部位置
+            let view_offset_world = gimbal_world_rotation * view_offset_transform.translation;
+
+            camera_transform.translation = infantry.translation + view_offset_world;
+            camera_transform.rotation = gimbal_world_rotation;
         }
         FollowingType::ThirdPerson => {
             let base_transform = infantry.into_inner();
