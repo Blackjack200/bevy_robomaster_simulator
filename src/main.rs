@@ -223,11 +223,11 @@ fn setup(
     };
 
     commands.spawn((
-        SceneRoot(asset_server.load("GROUND_DISPLAY.glb#Scene0")),
+        SceneRoot(asset_server.load("GROUND.glb#Scene0")),
         Transform::IDENTITY,
         PreciousCollision(HashMap::from([(
-            "GROUND_LOW".to_string(),
-            (trimesh.clone(), layer_env, Visibility::Hidden),
+            "GROUND_DENSE".to_string(),
+            (trimesh.clone(), layer_env, Visibility::Visible),
         )])),
     ));
 

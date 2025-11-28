@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use avian3d::prelude::{CollisionEnd, CollisionEventsEnabled};
-use bevy::prelude::GizmoAsset;
+use avian3d::prelude::{CollisionEnd, CollisionEventsEnabled, CollisionStart};
+use bevy::prelude::{GizmoAsset, Visibility};
 use bevy::{
     app::Update,
     asset::{AssetId, Assets, Handle},
@@ -733,7 +733,7 @@ pub struct RuneHit {
 }
 
 fn handle_rune_collision(
-    event: On<CollisionEnd>,
+    event: On<CollisionStart>,
     mut commands: Commands,
     mut runes: Query<&mut PowerRune>,
     targets: Query<&RuneIndex>,
@@ -741,19 +741,20 @@ fn handle_rune_collision(
     projectiles: Query<(), With<Projectile>>,
     mut param: PowerRuneParam,
 ) {
-    println!(
-        "{:?} {:?} {:?} {:?} {:?} {:?}",
-        event.collider1,
-        name.get(event.collider1),
-        name.get(event.body1.unwrap()),
-        event.collider2,
-        name.get(event.collider2),
-        name.get(event.body2.unwrap())
-    );
-    let Ok(&RuneIndex(index, rune_ent)) = targets.get(event.collider2) else {
+    let Ok(&RuneIndex(index, rune_ent)) = targets.get(event.body2.unwrap()) else {
         return;
     };
-    let other = event.collider1;
+    if let Ok(visibility) = param.appearance.visibilities.get(event.body2.unwrap())
+        && visibility == Visibility::Hidden
+    {
+        return;
+    }
+    if let Ok(visibility) = param.appearance.visibilities.get(event.body1.unwrap())
+        && visibility == Visibility::Hidden
+    {
+        return;
+    }
+    let other = event.body1.unwrap();
     if !projectiles.contains(other) {
         return;
     }
