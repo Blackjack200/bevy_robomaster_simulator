@@ -11,7 +11,7 @@ pub struct TopicPublisher<T: RosTopic> {
 }
 
 impl<T: RosTopic> TopicPublisher<T> {
-    pub(crate) fn new(sender: SyncSender<T::T>) -> Self {
+    pub(super) fn new(sender: SyncSender<T::T>) -> Self {
         TopicPublisher { sender }
     }
 

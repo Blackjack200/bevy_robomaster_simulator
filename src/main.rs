@@ -6,11 +6,12 @@ mod statistic;
 mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
+use crate::robomaster::prelude::RoboMasterPlugins;
 use crate::ros2::plugin::ROS2Plugin;
 use crate::util::bevy::insert_all_child;
 use crate::{
     handler::{on_activate, on_hit},
-    robomaster::power_rune::{PowerRunePlugin, PowerRuneRoot, Projectile},
+    robomaster::power_rune::{PowerRuneRoot, Projectile},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
 };
 use avian3d::prelude::*;
@@ -127,7 +128,7 @@ fn main() {
         .add_plugins(ROS2Plugin::default())
         .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
         //.add_plugins(PhysicsDebugPlugin::default())
-        .add_plugins(PowerRunePlugin)
+        .add_plugins(RoboMasterPlugins)
         .add_plugins((
             FrameTimeDiagnosticsPlugin::default(),
             LogDiagnosticsPlugin::default(),

@@ -1,11 +1,16 @@
 use std::collections::HashMap;
 
-use avian3d::prelude::{CollisionEnd, CollisionEventsEnabled, CollisionStart};
+use crate::robomaster::prelude::Team;
+use crate::robomaster::visibility::{
+    Activation, Control, Controller, StatefulAppearance, StatefulAppearanceCreator,
+};
+use crate::util::bevy::{drain_entities_by, insert_all_child};
+use crate::{material, visibility};
+use avian3d::prelude::{CollisionEventsEnabled, CollisionStart};
 use bevy::prelude::{GizmoAsset, Visibility};
 use bevy::{
     app::Update,
-    asset::{AssetId, Assets, Handle},
-    color::LinearRgba,
+    asset::Assets,
     ecs::{
         component::Component,
         entity::Entity,
@@ -14,19 +19,14 @@ use bevy::{
         name::Name,
         observer::On,
         query::With,
-        resource::Resource,
         system::{Commands, Query, Res, ResMut, SystemParam},
     },
     math::Dir3,
-    pbr::StandardMaterial,
     scene::{SceneInstanceReady, SceneSpawner},
     time::{Time, Timer, TimerMode},
     transform::components::Transform,
 };
 use rand::{seq::SliceRandom, Rng};
-
-use crate::robomaster::visibility::{Activation, Control, Controller, Param};
-use crate::util::bevy::{drain_entities_by, insert_all_child};
 
 #[derive(Component)]
 #[require(CollisionEventsEnabled)]
@@ -41,12 +41,6 @@ enum RuneAction {
     NewRound,
     Failure,
     ResetToInactive,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum RuneTeam {
-    Red,
-    Blue,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -86,12 +80,17 @@ struct RuneVisual {
 }
 
 impl RuneVisual {
-    pub fn apply(&mut self, mode: RuneMode, activation: Activation, param: &mut PowerRuneParam) {
+    pub fn apply(
+        &mut self,
+        mode: RuneMode,
+        activation: Activation,
+        appearance: &mut StatefulAppearance,
+    ) {
         match mode {
             RuneMode::Small => {
-                self.target.set(activation, &mut param.appearance);
+                self.target.set(activation, appearance);
                 for swap in &mut self.legging_segments {
-                    swap.set(activation, &mut param.appearance);
+                    swap.set(activation, appearance);
                 }
             }
             RuneMode::Large => {
@@ -100,24 +99,21 @@ impl RuneVisual {
                         Activation::Activated => Activation::Deactivated,
                         _ => activation,
                     },
-                    &mut param.appearance,
+                    appearance,
                 );
                 match activation {
-                    Activation::Activated => {
-                        self.legging_segments[0].set(activation, &mut param.appearance)
-                    }
+                    Activation::Activated => self.legging_segments[0].set(activation, appearance),
                     _ => {
                         for legging in &mut self.legging_segments {
-                            legging.set(activation, &mut param.appearance);
+                            legging.set(activation, appearance);
                         }
                     }
                 }
             }
         }
 
-        self.padding_segments.set(activation, &mut param.appearance);
-        self.progress_segments
-            .set(activation, &mut param.appearance);
+        self.padding_segments.set(activation, appearance);
+        self.progress_segments.set(activation, appearance);
     }
 }
 
@@ -209,7 +205,7 @@ const FUNNY: bool = true;
 
 #[derive(Component)]
 pub struct PowerRune {
-    pub _team: RuneTeam,
+    pub _team: Team,
     pub mode: RuneMode,
     r: Controller,
     state: MechanismState,
@@ -224,7 +220,7 @@ pub struct HitResult {
 
 impl PowerRune {
     fn new(
-        team: RuneTeam,
+        team: Team,
         mode: RuneMode,
         r: Controller,
         targets: Vec<RuneData>,
@@ -424,109 +420,22 @@ impl PowerRune {
         }
     }
 
-    fn apply_shared_visual(&mut self, param: &mut PowerRuneParam) {
+    fn apply_shared_visual(&mut self, appearance: &mut StatefulAppearance) {
         match &self.state {
             MechanismState::Inactive { .. } => {
-                self.r.set(Activation::Deactivated, &mut param.appearance);
+                self.r.set(Activation::Deactivated, appearance);
             }
             MechanismState::Activating { .. } => {
-                self.r.set(Activation::Activating, &mut param.appearance);
+                self.r.set(Activation::Activating, appearance);
             }
             MechanismState::Activated { .. } => {
-                self.r.set(Activation::Completed, &mut param.appearance);
+                self.r.set(Activation::Completed, appearance);
             }
             _ => {
-                self.r.set(Activation::Deactivated, &mut param.appearance);
+                self.r.set(Activation::Deactivated, appearance);
             }
         };
     }
-}
-
-#[derive(Resource, Default)]
-pub struct MaterialCache {
-    muted: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
-}
-
-impl MaterialCache {
-    fn ensure_muted(
-        &mut self,
-        handle: &Handle<StandardMaterial>,
-        materials: &mut Assets<StandardMaterial>,
-    ) -> Handle<StandardMaterial> {
-        let id = handle.id();
-        if let Some(existing) = self.muted.get(&id) {
-            return existing.clone();
-        }
-        let Some(original) = materials.get(handle) else {
-            return handle.clone();
-        };
-        let mut clone = original.clone();
-        clone.emissive = LinearRgba::BLACK;
-        clone.emissive_exposure_weight = 0.0;
-        let muted_handle = materials.add(clone);
-        self.muted.insert(id, muted_handle.clone());
-        muted_handle
-    }
-}
-
-type Idk<'w, 's, 'g> = (
-    Entity,
-    &'g mut ResMut<'w, MaterialCache>,
-    &'g mut Param<'w, 's>,
-);
-
-fn entity_recursive_generate<'w, 's, T, F: for<'g> Fn(Idk<'w, 's, 'g>) -> Result<T, ()>>(
-    entity: Entity,
-    swaps: &mut Vec<T>,
-    param: &mut PowerRuneParam<'w, 's>,
-    f: &F,
-) {
-    if let Ok(v) = f((entity, &mut param.cache, &mut param.appearance)) {
-        swaps.push(v);
-    }
-    let children = param.children;
-    if let Ok(children) = children.get(entity).clone() {
-        for child in children {
-            entity_recursive_generate::<T, F>(*child, swaps, param, &f);
-        }
-    }
-}
-
-fn create_controller<F: for<'w, 's, 'g> Fn(Idk<'w, 's, 'g>) -> Result<Controller, ()>>(
-    entities: Vec<Entity>,
-    param: &mut PowerRuneParam,
-    f: F,
-) -> Controller {
-    let mut controllers = Vec::new();
-    for entity in entities {
-        let mut swaps = Vec::new();
-        entity_recursive_generate::<Controller, F>(entity, &mut swaps, param, &f);
-        if swaps.is_empty() {
-            continue;
-        }
-        controllers.push(Controller::new_combined(swaps));
-    }
-    Controller::new_combined(controllers)
-}
-
-fn material<F>(f: F) -> impl Fn(Idk) -> Result<Controller, ()>
-where
-    F: Fn(Entity, Handle<StandardMaterial>, Handle<StandardMaterial>) -> Controller,
-{
-    move |value: Idk| -> Result<Controller, ()> {
-        let (entity, cache, param) = value;
-        if let Ok(mut mesh_material) = param.mesh_materials.get_mut(entity) {
-            let off = cache.ensure_muted(&mesh_material.0, &mut param.materials);
-            let on = std::mem::replace(&mut mesh_material.0, off.clone());
-            Ok(f(entity, on, off))
-        } else {
-            Err(())
-        }
-    }
-}
-
-fn only_activating(value: Idk) -> Result<Controller, ()> {
-    Ok(Controller::new_visibility(None, Some(value.0), None, None))
 }
 
 fn build_targets(
@@ -534,26 +443,23 @@ fn build_targets(
     face_entity: Entity,
     name_map: &mut HashMap<&str, Entity>,
     param: &mut PowerRuneParam,
+    creator: &mut StatefulAppearanceCreator,
 ) -> Vec<RuneData> {
     let mut targets = Vec::new();
     for target_idx in 1..=5 {
         let prefix = format!("FACE_{}_TARGET_{}", face_index, target_idx);
 
-        let padding_segments = create_controller(
+        let padding_segments = creator.create_controller(
             drain_entities_by(name_map, |name| {
                 name.starts_with(&format!("{}_PADDING", prefix))
             }),
-            param,
-            material(|entity, on, off| {
-                Controller::new_material(entity, off.clone(), off.clone(), off.clone(), on)
-            }),
+            material!(on = { completed }),
         );
-        let progress_segments = create_controller(
+        let progress_segments = creator.create_controller(
             drain_entities_by(name_map, |name| {
                 name.starts_with(&format!("{}_LEGGING_PROGRESSING", prefix))
             }),
-            param,
-            only_activating,
+            visibility!(activating),
         );
 
         let ad = format!("{}_ACTIVATED", prefix);
@@ -603,15 +509,12 @@ fn build_targets(
             Controller::new_combined(vec![]),
         ];
         for legging_idx in 1..=3 {
-            legging_segments[legging_idx - 1] = create_controller(
+            legging_segments[legging_idx - 1] = creator.create_controller(
                 drain_entities_by(name_map, |name| {
                     name.starts_with(&format!("{}_LEGGING_{}", prefix, legging_idx))
                         && !name.contains("PROGRESSING")
                 }),
-                param,
-                material(|entity, on, off| {
-                    Controller::new_material(entity, off.clone(), off.clone(), on.clone(), on)
-                }),
+                material!(on = {activated, completed}),
             )
         }
 
@@ -633,17 +536,19 @@ fn build_targets(
 struct PowerRuneParam<'w, 's> {
     commands: Commands<'w, 's>,
     scene_spawner: Res<'w, SceneSpawner>,
-    cache: ResMut<'w, MaterialCache>,
 
     gizmo_assets: ResMut<'w, Assets<GizmoAsset>>,
 
     power_query: Query<'w, 's, (), With<PowerRuneRoot>>,
     names: Query<'w, 's, &'static Name>,
     children: Query<'w, 's, &'static Children>,
-    appearance: Param<'w, 's>,
 }
 
-fn setup_power_rune(events: On<SceneInstanceReady>, mut param: PowerRuneParam) {
+fn setup_power_rune(
+    events: On<SceneInstanceReady>,
+    mut param: PowerRuneParam,
+    mut creator: StatefulAppearanceCreator,
+) {
     if !param.power_query.contains(events.entity) {
         return;
     }
@@ -689,11 +594,12 @@ fn setup_power_rune(events: On<SceneInstanceReady>, mut param: PowerRuneParam) {
         let deactivated = name_map.remove(format!("FACE_{}_R_UNPOWERED", index).as_str());
         let activated = name_map.remove(format!("FACE_{}_R_POWERED", index).as_str());
 
-        let mut targets = build_targets(index, face_entity, &mut name_map, &mut param);
+        let mut targets =
+            build_targets(index, face_entity, &mut name_map, &mut param, &mut creator);
         for target in &mut targets {
             target
                 .visual
-                .apply(mode, Activation::Deactivated, &mut param);
+                .apply(mode, Activation::Deactivated, &mut creator.appearance);
         }
 
         if targets.is_empty() {
@@ -702,9 +608,9 @@ fn setup_power_rune(events: On<SceneInstanceReady>, mut param: PowerRuneParam) {
 
         param.commands.entity(face_entity).insert(PowerRune::new(
             if (index & 1) > 0 {
-                RuneTeam::Red
+                Team::Red
             } else {
-                RuneTeam::Blue
+                Team::Blue
             },
             mode,
             Controller::new_visibility(
@@ -736,71 +642,63 @@ fn handle_rune_collision(
     event: On<CollisionStart>,
     mut commands: Commands,
     mut runes: Query<&mut PowerRune>,
-    targets: Query<&RuneIndex>,
-    name: Query<&Name>,
+    targets: Query<(&Visibility, &RuneIndex)>,
     projectiles: Query<(), With<Projectile>>,
     mut param: PowerRuneParam,
 ) {
-    let Ok(&RuneIndex(index, rune_ent)) = targets.get(event.body2.unwrap()) else {
+    if event.body1.is_none() || event.body2.is_none() {
+        return;
+    }
+    let projectile = event.body1.unwrap();
+    if !projectiles.contains(projectile) {
+        return;
+    }
+    let target = event.body2.unwrap();
+    let Ok((visibility, &RuneIndex(index, rune_ent))) = targets.get(target) else {
         return;
     };
-    if let Ok(visibility) = param.appearance.visibilities.get(event.body2.unwrap())
-        && visibility == Visibility::Hidden
-    {
+    if *visibility == Visibility::Hidden {
         return;
     }
-    if let Ok(visibility) = param.appearance.visibilities.get(event.body1.unwrap())
-        && visibility == Visibility::Hidden
-    {
+    let Ok(mut rune) = runes.get_mut(rune_ent) else {
         return;
-    }
-    let other = event.body1.unwrap();
-    if !projectiles.contains(other) {
-        return;
-    }
-    if let Some(body) = event.body2 {
-        if targets.get(body).is_err() {
-            return;
-        };
-    }
-    if let Ok(mut rune) = runes.get_mut(rune_ent) {
-        let mut rng = rand::rng();
-        let result = rune.on_target_hit(index, &mut rng);
+    };
 
-        match rune.state {
-            MechanismState::Inactive { .. } => {
+    let mut rng = rand::rng();
+    let result = rune.on_target_hit(index, &mut rng);
+    match rune.state {
+        MechanismState::Inactive { .. } => {
+            commands.trigger(RuneHit {
+                rune: rune_ent,
+                result,
+            });
+        }
+        MechanismState::Activating(_) => {
+            commands.trigger(RuneHit {
+                rune: rune_ent,
+                result,
+            });
+        }
+        MechanismState::Activated { .. } => {
+            let mode = rune.mode;
+            for target in &mut rune.targets {
+                target.state = Activation::Completed;
+                //target.visual.apply(mode, target.state, &mut param)
+            }
+            if result.change_state {
+                commands.trigger(RuneActivated { rune: rune_ent });
+            } else {
                 commands.trigger(RuneHit {
                     rune: rune_ent,
                     result,
                 });
             }
-            MechanismState::Activating(_) => {
-                commands.trigger(RuneHit {
-                    rune: rune_ent,
-                    result,
-                });
-            }
-            MechanismState::Activated { .. } => {
-                let mode = rune.mode;
-                for target in &mut rune.targets {
-                    target.state = Activation::Completed;
-                    target.visual.apply(mode, target.state, &mut param)
-                }
-                if result.change_state {
-                    commands.trigger(RuneActivated { rune: rune_ent });
-                } else {
-                    commands.trigger(RuneHit {
-                        rune: rune_ent,
-                        result,
-                    });
-                }
-            }
-            MechanismState::Failed { .. } => {
-                commands.trigger(RuneHit {
-                    rune: rune_ent,
-                    result,
-                });
-            }
+        }
+        MechanismState::Failed { .. } => {
+            commands.trigger(RuneHit {
+                rune: rune_ent,
+                result,
+            });
         }
     }
 }
@@ -867,13 +765,13 @@ fn rune_activation_tick(time: Res<Time>, mut runes: Query<&mut PowerRune>) {
     }
 }
 
-fn rune_apply_visuals(mut runes: Query<&mut PowerRune>, mut param: PowerRuneParam) {
+fn rune_apply_visuals(mut runes: Query<&mut PowerRune>, mut appearance: StatefulAppearance) {
     for mut rune in &mut runes {
-        rune.apply_shared_visual(&mut param);
+        rune.apply_shared_visual(&mut appearance);
         let mode = rune.mode;
         for target in &mut rune.targets {
             if target.state != target.applied_state {
-                target.visual.apply(mode, target.state, &mut param);
+                target.visual.apply(mode, target.state, &mut appearance);
                 target.applied_state = target.state;
             }
         }
@@ -893,12 +791,12 @@ fn rune_rotation_system(time: Res<Time>, mut runes: Query<(&mut Transform, &mut 
     }
 }
 
-pub struct PowerRunePlugin;
+#[derive(Default)]
+pub(super) struct PowerRunePlugin;
 
 impl bevy::app::Plugin for PowerRunePlugin {
     fn build(&self, app: &mut bevy::app::App) {
-        app.init_resource::<MaterialCache>()
-            .add_observer(handle_rune_collision)
+        app.add_observer(handle_rune_collision)
             .add_observer(setup_power_rune)
             .add_systems(
                 Update,
