@@ -66,7 +66,7 @@ impl PowerRune {
                 }
                 let mut state = ActivatingState::new(
                     self.mode,
-                    vec![Activation::Deactivated; self.targets.len()]
+                    vec![Activation::Deactivated; self.targets.len()],
                 );
                 for act in state.start() {
                     self.handle_action(rng, act, appearance);

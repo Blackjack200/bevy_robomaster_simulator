@@ -1,7 +1,7 @@
 use std::ops::{Add, Mul, Sub};
 
 use bevy::{
-    ecs::system::{lifetimeless::Read, SystemParam},
+    ecs::system::{SystemParam, lifetimeless::Read},
     prelude::*,
 };
 

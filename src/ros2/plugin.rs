@@ -2,18 +2,18 @@ use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{
-    add_tf_frame, arc_mutex, pose, publisher, InfantryGimbal, InfantryLaunchOffset, LocalInfantry,
+    InfantryGimbal, InfantryLaunchOffset, LocalInfantry, add_tf_frame, arc_mutex, pose, publisher,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
-use r2r::{std_msgs::msg::Header, tf2_msgs::msg::TFMessage, Clock, Context, Node};
+use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::f32::consts::PI;
 use std::time::Duration;
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering}, Arc,
-        Mutex,
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
 };

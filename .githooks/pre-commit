@@ -1,0 +1,4 @@
+# .githooks/pre-commit
+#!/bin/sh
+echo "Running cargo fmt..."
+cargo fmt

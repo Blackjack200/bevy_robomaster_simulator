@@ -17,7 +17,7 @@ use avian3d::prelude::*;
 use bevy::camera::Exposure;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
-use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
+use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
 use bevy::{
     anti_alias::fxaa::Fxaa,

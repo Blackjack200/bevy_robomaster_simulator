@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType::Rgb8;
-use std::fs::{create_dir_all, File};
+use image::codecs::jpeg::JpegEncoder;
+use std::fs::{File, create_dir_all};
 use std::io::ErrorKind::Other;
 use std::io::{BufWriter, Error, Write};
 use std::path::{Path, PathBuf};

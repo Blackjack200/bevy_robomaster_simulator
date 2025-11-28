@@ -12,22 +12,22 @@ use bevy::{
     image::TextureFormatPixelInfo,
     prelude::*,
     render::{
-        render_asset::RenderAssets, render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel}, render_resource::{
+        Render, RenderApp, RenderSystems,
+        render_asset::RenderAssets,
+        render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
+        render_resource::{
             Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor, Extent3d, MapMode,
             PollType, TexelCopyBufferInfo, TexelCopyBufferLayout, TextureFormat, TextureUsages,
         },
         renderer::{RenderContext, RenderDevice, RenderQueue},
-        Render,
-        RenderApp,
-        RenderSystems,
     },
 };
+use r2r::Clock;
 use r2r::sensor_msgs::msg::{CameraInfo, RegionOfInterest};
 use r2r::std_msgs::msg::Header;
-use r2r::Clock;
 use std::sync::{
-    atomic::{AtomicBool, Ordering}, Arc,
-    Mutex,
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 

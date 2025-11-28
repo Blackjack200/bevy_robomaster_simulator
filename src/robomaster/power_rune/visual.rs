@@ -48,4 +48,3 @@ impl RuneVisual {
         self.progress_segments.set(activation, appearance);
     }
 }
-
