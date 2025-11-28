@@ -1,3 +1,3 @@
 pub mod bevy;
-pub mod sync;
+pub mod derive;
 pub mod image;

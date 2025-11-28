@@ -6,12 +6,11 @@ mod statistic;
 mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
-use crate::robomaster::prelude::RoboMasterPlugins;
+use crate::robomaster::prelude::{PowerRuneRoot, Projectile, RoboMasterPlugins};
 use crate::ros2::plugin::ROS2Plugin;
 use crate::util::bevy::insert_all_child;
 use crate::{
     handler::{on_activate, on_hit},
-    robomaster::power_rune::{PowerRuneRoot, Projectile},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
 };
 use avian3d::prelude::*;

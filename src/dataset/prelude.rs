@@ -93,7 +93,7 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
     let n: [(CornerTuple, Vec2); 4] = points.map(|v| (v, Vec2::new(v.1.0 as f32, v.1.1 as f32)));
 
     let mut axis = 0.0;
-    let mut diag = (0, 0);
+    let mut diagonal = (0, 0);
 
     // 找出距离最大的两个点（矩形对角线）
     // points.cartesian_product().map().max() 总是对角线
@@ -102,20 +102,20 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
             let d = (n[i].1 - n[j].1).length();
             if d > axis {
                 axis = d;
-                diag = (i, j);
+                diagonal = (i, j);
             }
         }
     }
 
     // 第一根对角线的两个点
-    let mut p0 = n[diag.0];
-    let mut p2 = n[diag.1];
+    let mut p0 = n[diagonal.0];
+    let mut p2 = n[diagonal.1];
     if p0.1.x > p2.1.x {
         // 左上角总是 x 较小的那个
         swap(&mut p0, &mut p2);
     }
     let [mut p1, mut p3]: [(CornerTuple, Vec2); 2] = (0..4)
-        .filter(|&i| i != diag.0 && i != diag.1)
+        .filter(|&i| i != diagonal.0 && i != diagonal.1)
         .map(|i| n[i])
         .collect::<Vec<_>>()
         .try_into()

@@ -1,8 +1,8 @@
+use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{
-    add_tf_frame, arc_mutex, pose, publisher, robomaster::power_rune::{PowerRune, RuneIndex}, InfantryGimbal, InfantryLaunchOffset,
-    LocalInfantry,
+    add_tf_frame, arc_mutex, pose, publisher, InfantryGimbal, InfantryLaunchOffset, LocalInfantry,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -116,7 +116,7 @@ fn capture_rune(
         add_tf_frame!(
             transform_stamped,
             map_hdr.clone(),
-            format!("power_rune_{:?}", rune.mode)
+            format!("power_rune_{:?}", rune.mode())
                 .to_string()
                 .to_lowercase(),
             transform.compute_transform()
@@ -131,11 +131,11 @@ fn capture_rune(
                 transform_stamped,
                 Header {
                     stamp: stamp.clone(),
-                    frame_id: format!("power_rune_{:?}", rune.mode)
+                    frame_id: format!("power_rune_{:?}", rune.mode())
                         .to_string()
                         .to_lowercase(),
                 },
-                format!("power_rune_{:?}_{:?}", rune.mode, target.0)
+                format!("power_rune_{:?}_{:?}", rune.mode(), target.0)
                     .to_string()
                     .to_lowercase(),
                 target_transform.reparented_to(_rune_transform)

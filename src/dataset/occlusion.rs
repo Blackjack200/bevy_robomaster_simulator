@@ -44,7 +44,7 @@ pub struct Occlusion<'w, 's> {
 }
 
 impl<'w, 's> Occlusion<'w, 's> {
-    fn is_sample_occluded(
+    fn sample_occluded(
         &mut self,
         camera_pos: Vec3,
         armor_entity: Entity,
@@ -104,7 +104,7 @@ impl<'w, 's> Occlusion<'w, 's> {
 
         for &sample in &samples {
             total_samples += 1;
-            if !self.is_sample_occluded(camera_pos, armor_entity, sample) {
+            if !self.sample_occluded(camera_pos, armor_entity, sample) {
                 visible_samples += 1;
             }
         }
