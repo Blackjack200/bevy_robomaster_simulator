@@ -18,6 +18,7 @@ use avian3d::prelude::*;
 use bevy::camera::Exposure;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
+use bevy::render::RenderSystems;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
 use bevy::{
@@ -152,11 +153,13 @@ fn main() {
                 update_help_text,
                 following_controls,
                 vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
+                freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
+                update_camera_follow
+                    .run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free)
+                    .before(RenderSystems::Render),
                 remote_vehicle_controls,
                 gimbal_controls,
                 remote_gimbal_controls,
-                freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
-                update_camera_follow.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
                 screenshot_on_f2
                     .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
                 screenshot_saving,
@@ -577,7 +580,7 @@ fn vehicle_controls(
     let (mut forces, mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    dynamic.linear(&mut forces, gimbal.into_inner().0, input, dt);
+    dynamic.linear(&mut forces, gimbal.into_inner().0, input);
 
     let input = input!(keyboard, KeyQ, KeyE);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
@@ -603,7 +606,7 @@ fn remote_vehicle_controls(
     let (mut forces, mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    dynamic.linear(&mut forces, gimbal.into_inner().0, input, dt);
+    dynamic.linear(&mut forces, gimbal.into_inner().0, input);
 
     let input = input!(keyboard, KeyU, KeyO);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
@@ -676,18 +679,16 @@ fn update_camera_follow(
     gimbal: Single<&Transform, (With<LocalInfantry>, With<InfantryGimbal>)>,
     view_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryViewOffset>)>,
     mode: Res<CameraMode>,
+    time: Res<Time>,
 ) {
     let gimbal_transform = gimbal.into_inner();
     let (mut camera_transform, camera_offset) = camera_query.into_inner();
 
     match mode.0 {
         FollowingType::Robot => {
+            // 严格跟随机器人 → 直接赋值
             let view_offset_transform = view_offset.into_inner();
-
             let gimbal_world_rotation = infantry.rotation * gimbal_transform.rotation;
-
-            // 步骤2: 计算 ViewOffset 在世界空间的位置
-            // ViewOffset 的世界位置 = 机器人位置 + Gimbal世界旋转 * ViewOffset局部位置
             let view_offset_world = gimbal_world_rotation * view_offset_transform.translation;
 
             camera_transform.translation = infantry.translation + view_offset_world;
@@ -699,7 +700,9 @@ fn update_camera_follow(
             camera_transform.translation = base_transform.translation + offset;
             camera_transform.look_at(base_transform.translation, Vec3::Y);
         }
-        FollowingType::Free => {}
+        FollowingType::Free => {
+            // 自由模式不修改
+        }
     }
 }
 
