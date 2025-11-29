@@ -36,6 +36,51 @@ pub struct MainCamera;
 #[derive(Resource, Deref, DerefMut)]
 pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
 
+macro_rules! tf_tree {
+    (stamp: $stamp:expr;$root:literal { $($content:tt)* }) => {{
+        let stamp = $stamp;
+        let mut transform_stamped = vec![];
+        let _current = $root.to_string();
+        tf_tree!(@frame transform_stamped, stamp, _parent, _current, $($content)*);
+
+        transform_stamped
+    }};
+
+    (@header $stamp:ident, $current:ident) => {
+        Header {
+            stamp: $stamp.clone(),
+            frame_id: $current.clone(),
+        }
+    };
+
+    (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident,
+        $(
+            $curr_name:literal
+            $(as ($translation:expr, $rotation:expr))*
+            $(for $pub_:ident)?
+            $({$($children:tt)*})?
+            $(;)?
+        )*
+    ) => {
+        $(
+            {
+                let $parent = $current.clone();
+                let $current = $curr_name.to_string();
+                $(
+                    $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
+                )*
+                $(
+                    $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
+                )*
+                $(
+                    tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($children)*);
+                )*
+            }
+        )*
+    };
+    (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident, $(,)? $({})?) => { };
+}
+
 fn capture_rune(
     camera: Single<&GlobalTransform, With<MainCamera>>,
     gimbal: Single<&GlobalTransform, (With<LocalInfantry>, With<InfantryGimbal>)>,
@@ -55,82 +100,34 @@ fn capture_rune(
     camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
 ) {
     let cam_transform = camera.into_inner();
+
     let stamp = Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
-    let mut transform_stamped = vec![];
     let map_hdr = Header {
         stamp: stamp.clone(),
         frame_id: "map".to_string(),
     };
-    let odom_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "odom".to_string(),
-    };
-    let gimbal_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "gimbal_link".to_string(),
-    };
-    let camera_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "camera_link".to_string(),
-    };
-    let muzzle_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "muzzle".to_string(),
-    };
-    let muzzle_link_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "muzzle_link".to_string(),
-    };
 
-    gimbal_pose_pub.publish(pose!(gimbal_hdr));
-    odom_pose_pub.publish(pose!(odom_hdr));
-    muzzle_pose_pub.publish(pose!(muzzle_link_hdr));
-
-    add_tf_frame!(
-        transform_stamped,
-        map_hdr.clone(),
-        "odom",
-        gimbal.translation(),
-        Quat::IDENTITY
-    );
-    add_tf_frame!(
-        transform_stamped,
-        odom_hdr.clone(),
-        "gimbal_link",
-        Vec3::ZERO,
-        gimbal.rotation()
-    );
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
-    add_tf_frame!(
-        transform_stamped,
-        gimbal_hdr.clone(),
-        "muzzle",
-        muzzle_rel.translation,
-        muzzle_rel.rotation
-    );
-    add_tf_frame!(
-        transform_stamped,
-        muzzle_hdr.clone(),
-        "muzzle_link",
-        Vec3::ZERO,
-        Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)
-    );
-    add_tf_frame!(
-        transform_stamped,
-        gimbal_hdr.clone(),
-        "camera_link",
-        cam_rel.translation,
-        cam_rel.rotation
-    );
-    add_tf_frame!(
-        transform_stamped,
-        camera_hdr.clone(),
-        "camera_optical_frame",
-        Vec3::ZERO,
-        Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)
-    );
+
+    let mut transform_stamped = tf_tree! {
+        stamp: stamp.clone();
+
+        "map" {
+            "odom" as (gimbal.translation(), Quat::IDENTITY)for odom_pose_pub{
+                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()) for gimbal_pose_pub{
+                    "muzzle" as (muzzle_rel.translation, muzzle_rel.rotation) {
+                        "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub;
+                    }
+                    "camera_link" as (cam_rel.translation, cam_rel.rotation) {
+                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0));
+                    }
+                }
+            }
+        }
+    };
+
     for (transform, rune) in runes {
         add_tf_frame!(
             transform_stamped,
