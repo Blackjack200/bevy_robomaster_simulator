@@ -7,6 +7,7 @@ mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
 use crate::robomaster::prelude::{PowerRuneRoot, Projectile, RoboMasterPlugins};
+use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::ros2::plugin::ROS2Plugin;
 use crate::util::bevy::insert_all_child;
 use crate::{
@@ -210,9 +211,11 @@ fn setup(
         ],
     );
 
-    let trimesh = ColliderConstructorHierarchy::new(
-        ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::all()),
-    );
+    let trimesh = || {
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
+            TrimeshFlags::all(),
+        ))
+    };
     let voxel = |size| {
         ColliderConstructorHierarchy::new(ColliderConstructor::VoxelizedTrimeshFromMesh {
             voxel_size: size,
@@ -223,15 +226,20 @@ fn setup(
     };
 
     commands.spawn((
+        RigidBody::Static,
         SceneRoot(asset_server.load("GROUND.glb#Scene0")),
         Transform::IDENTITY,
+        Friction::new(0.5),
         PreciousCollision(HashMap::from([(
             "GROUND_DENSE".to_string(),
-            (trimesh.clone(), layer_env, Visibility::Visible),
+            (trimesh(), layer_env, Visibility::Visible),
         )])),
     ));
 
-    let mut power_rune_col = HashMap::from([]);
+    let mut power_rune_col = HashMap::from([(
+        "BASE".to_string(),
+        (trimesh(), layer_env, Visibility::Visible),
+    )]);
     for i in 1..=2 {
         /*power_rune_col.insert(
             format!("FACE_{}", i).to_string(),
@@ -313,8 +321,20 @@ fn setup_vehicle(
     }
     commands.entity(root).insert((
         RigidBody::Dynamic,
-        Collider::cylinder(0.2593615, 0.433951),
-        CollisionMargin(0.001),
+        VehicleDynamic::default(),
+        Collider::compound(vec![
+            (
+                Vec3::new(0.0, 0.115649, 0.0),
+                Quat::IDENTITY,
+                Collider::cylinder(0.1040215, 0.364237),
+            ),
+            (
+                Vec3::new(0.0, -0.115649, 0.0),
+                Quat::IDENTITY,
+                Collider::cylinder(0.2593615, 0.231298),
+            ),
+        ]),
+        CollisionMargin(0.005),
         CollisionLayers::new(
             GameLayer::Vehicle,
             [
@@ -324,12 +344,9 @@ fn setup_vehicle(
                 GameLayer::Environment,
             ],
         ),
-        Mass(20.0),
-        Friction::new(0.5),
-        Restitution::ZERO,
-        LinearDamping(0.0),
-        AngularDamping(109.8),
-        LockedAxes::new().lock_rotation_x().lock_rotation_z(),
+        Mass(25.0),
+        Restitution::new(0.01),
+        AngularDamping(50.0),
     ));
 
     let mut despawn = HashSet::new();
@@ -508,69 +525,70 @@ const GIMBAL_ROTATION_SPEED: f32 = 3.0;
 
 const MAX_VEHICLE_VELOCITY: f32 = 6.0;
 
+macro_rules! input {
+    ($keyboard:ident, $forward:ident,$left:ident,$backward:ident,$right:ident) => {{
+        let mut input = Vec2::ZERO;
+        if $keyboard.pressed(KeyCode::$forward) {
+            input.y += 1.0;
+        }
+        if $keyboard.pressed(KeyCode::$backward) {
+            input.y -= 1.0;
+        }
+        if $keyboard.pressed(KeyCode::$right) {
+            input.x += 1.0;
+        }
+        if $keyboard.pressed(KeyCode::$left) {
+            input.x -= 1.0;
+        }
+        input
+    }};
+    ($keyboard:ident, $left:ident,$right:ident) => {{
+        let mut input: f32 = 0.0;
+        if $keyboard.pressed(KeyCode::$left) {
+            input += 1.0;
+        }
+        if $keyboard.pressed(KeyCode::$right) {
+            input += -1.0;
+        }
+        input
+    }};
+}
+
 fn vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<(Forces, &Mass), (With<InfantryRoot>, With<LocalInfantry>)>,
+    infantry: Single<(Forces, &mut VehicleDynamic), (With<InfantryRoot>, With<LocalInfantry>)>,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
         (With<LocalInfantry>, Without<InfantryChassis>),
     >,
     chassis: Single<
         (&mut Transform, &mut InfantryChassis),
-        (With<LocalInfantry>, Without<InfantryGimbal>),
+        (
+            With<LocalInfantry>,
+            Without<InfantryGimbal>,
+            With<InfantryChassis>,
+            Without<InfantryRoot>,
+        ),
     >,
 ) {
-    let mut input = Vec2::ZERO;
-    if keyboard.pressed(KeyCode::KeyW) {
-        input.y += 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyS) {
-        input.y -= 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyD) {
-        input.x += 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyA) {
-        input.x -= 1.0;
-    }
+    let input = input!(keyboard, KeyW, KeyA, KeyS, KeyD);
+
+    let (mut forces, mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    let (mut forces, mass) = infantry.into_inner();
+    dynamic.linear(&mut forces, gimbal.into_inner().0, input, dt);
 
+    let input = input!(keyboard, KeyQ, KeyE);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
-    let (gimbal_transform, _gimbal) = gimbal.into_inner();
-
-    let forward = gimbal_transform.forward().with_y(0.0);
-    let right = gimbal_transform.right().with_y(0.0);
-    let forward_xz = forward.with_y(0.0).normalize_or_zero();
-    let right_xz = right.with_y(0.0).normalize_or_zero();
-
-    let desired_dir = (forward_xz * input.y + right_xz * input.x).normalize_or_zero();
-    forces.apply_linear_impulse(mass.0 * dt * desired_dir * VEHICLE_ACCEL);
-    let linear_vel = forces.linear_velocity();
-    let current_velocity = linear_vel.length();
-    if current_velocity > MAX_VEHICLE_VELOCITY {
-        let brake_force = linear_vel.normalize() * (current_velocity - MAX_VEHICLE_VELOCITY) * 50.0;
-        forces.apply_linear_impulse(mass.0 * dt * -brake_force);
-    } else if input == Vec2::ZERO {
-        forces.apply_linear_impulse(mass.0 * dt * -linear_vel * 10.0);
-    }
-
-    if keyboard.pressed(KeyCode::KeyQ) {
-        chassis_data.yaw += VEHICLE_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::KeyE) {
-        chassis_data.yaw -= VEHICLE_ROTATION_SPEED * dt;
-    }
-
+    chassis_data.yaw += input * VEHICLE_ROTATION_SPEED * dt;
     chassis_transform.rotation = Quat::from_euler(EulerRot::YXZ, chassis_data.yaw, 0.0, 0.0);
 }
 
 fn remote_vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<Forces, (With<InfantryRoot>, Without<LocalInfantry>)>,
+    infantry: Single<(Forces, &mut VehicleDynamic), (With<InfantryRoot>, Without<LocalInfantry>)>,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
         (Without<LocalInfantry>, Without<InfantryChassis>),
@@ -580,49 +598,16 @@ fn remote_vehicle_controls(
         (Without<LocalInfantry>, Without<InfantryGimbal>),
     >,
 ) {
-    let mut input = Vec2::ZERO;
-    if keyboard.pressed(KeyCode::KeyI) {
-        input.y += 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyK) {
-        input.y -= 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyL) {
-        input.x += 1.0;
-    }
-    if keyboard.pressed(KeyCode::KeyJ) {
-        input.x -= 1.0;
-    }
+    let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
+
+    let (mut forces, mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    let mut forces = infantry.into_inner();
+    dynamic.linear(&mut forces, gimbal.into_inner().0, input, dt);
 
+    let input = input!(keyboard, KeyU, KeyO);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
-    let (gimbal_transform, _gimbal) = gimbal.into_inner();
-
-    let forward = gimbal_transform.forward().with_y(0.0);
-    let right = gimbal_transform.right().with_y(0.0);
-    let forward_xz = forward.with_y(0.0).normalize_or_zero();
-    let right_xz = right.with_y(0.0).normalize_or_zero();
-
-    let desired_dir = (forward_xz * input.y + right_xz * input.x).normalize_or_zero();
-    forces.apply_linear_acceleration(desired_dir * VEHICLE_ACCEL);
-    let linear_vel = forces.linear_velocity();
-    let current_velocity = linear_vel.length();
-    if current_velocity > MAX_VEHICLE_VELOCITY {
-        let brake_force = linear_vel.normalize() * (current_velocity - MAX_VEHICLE_VELOCITY) * 50.0;
-        forces.apply_linear_acceleration(-brake_force);
-    } else if input == Vec2::ZERO {
-        forces.apply_linear_acceleration(-linear_vel * 10.0);
-    }
-
-    if keyboard.pressed(KeyCode::KeyU) {
-        chassis_data.yaw += VEHICLE_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::KeyO) {
-        chassis_data.yaw -= VEHICLE_ROTATION_SPEED * dt;
-    }
-
+    chassis_data.yaw += input * VEHICLE_ROTATION_SPEED * dt;
     chassis_transform.rotation = Quat::from_euler(EulerRot::YXZ, chassis_data.yaw, 0.0, 0.0);
 }
 
@@ -640,18 +625,8 @@ fn gimbal_controls(
     (gimbal_data.local_yaw, gimbal_data.pitch, _) =
         gimbal_transform.rotation.to_euler(EulerRot::YXZ);
 
-    if keyboard.pressed(KeyCode::ArrowLeft) {
-        gimbal_data.local_yaw += GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::ArrowRight) {
-        gimbal_data.local_yaw -= GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::ArrowUp) {
-        gimbal_data.pitch += GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::ArrowDown) {
-        gimbal_data.pitch -= GIMBAL_ROTATION_SPEED * dt;
-    }
+    gimbal_data.local_yaw += input!(keyboard, ArrowLeft, ArrowRight) * GIMBAL_ROTATION_SPEED * dt;
+    gimbal_data.pitch += input!(keyboard, ArrowUp, ArrowDown) * GIMBAL_ROTATION_SPEED * dt;
 
     gimbal_data.pitch = gimbal_data.pitch.clamp(-0.785, 0.785);
 
@@ -675,19 +650,8 @@ fn remote_gimbal_controls(
     (gimbal_data.local_yaw, gimbal_data.pitch, _) =
         gimbal_transform.rotation.to_euler(EulerRot::YXZ);
 
-    if keyboard.pressed(KeyCode::KeyC) {
-        gimbal_data.local_yaw += GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::KeyB) {
-        gimbal_data.local_yaw -= GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::KeyF) {
-        gimbal_data.pitch += GIMBAL_ROTATION_SPEED * dt;
-    }
-    if keyboard.pressed(KeyCode::KeyV) {
-        gimbal_data.pitch -= GIMBAL_ROTATION_SPEED * dt;
-    }
-
+    gimbal_data.local_yaw += input!(keyboard, KeyC, KeyB) * GIMBAL_ROTATION_SPEED * dt;
+    gimbal_data.pitch += input!(keyboard, KeyF, KeyV) * GIMBAL_ROTATION_SPEED * dt;
     gimbal_data.pitch = gimbal_data.pitch.clamp(-0.785, 0.785);
 
     let gimbal_rotation =
@@ -708,7 +672,7 @@ fn following_controls(mut mode: ResMut<CameraMode>, keyboard: Res<ButtonInput<Ke
 
 fn update_camera_follow(
     camera_query: Single<(&mut Transform, &MainCamera), Without<LocalInfantry>>,
-    infantry: Single<&Transform, (With<InfantryRoot>, Changed<Transform>, With<LocalInfantry>)>,
+    infantry: Single<&Transform, (With<InfantryRoot>, With<LocalInfantry>)>,
     gimbal: Single<&Transform, (With<LocalInfantry>, With<InfantryGimbal>)>,
     view_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryViewOffset>)>,
     mode: Res<CameraMode>,
