@@ -1,8 +1,10 @@
-use bevy::prelude::Resource;
+use bevy::prelude::{App, Resource};
 use r2r::geometry_msgs::msg::PoseStamped;
 use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image};
 use r2r::tf2_msgs::msg::TFMessage;
-use r2r::{QosProfile, WrappedTypesupport};
+use r2r::{Node, QosProfile, WrappedTypesupport};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::SyncSender;
 
 #[derive(Resource)]
@@ -25,8 +27,8 @@ macro_rules! publisher {
     ($node:ident,$topic:ty) => {
         {
             let (sender, receiver): (
-                ::std::sync::mpsc::SyncSender<<$topic as crate::ros2::topic::RosTopic>::T>,
-                ::std::sync::mpsc::Receiver<<$topic as crate::ros2::topic::RosTopic>::T>,
+                ::std::sync::mpsc::SyncSender<<$topic as $crate::ros2::topic::RosTopic>::T>,
+                ::std::sync::mpsc::Receiver<<$topic as $crate::ros2::topic::RosTopic>::T>,
             ) = ::std::sync::mpsc::sync_channel(1024);
 
             let publisher = $node.create_publisher(
@@ -44,7 +46,7 @@ macro_rules! publisher {
             while !atomic.load(::std::sync::atomic::Ordering::Acquire) {
                 let mut did_work = false;
                 loop {
-                    match receiver.recv_timeout(Duration::from_secs(1)) {
+                    match receiver.recv_timeout(::std::time::Duration::from_secs(1)) {
                         Ok(m) => {
                             let mut sent = false;
                             while !sent {
@@ -66,7 +68,7 @@ macro_rules! publisher {
                 }
             }
         });
-        crate::ros2::topic::TopicPublisher::<$topic>::new(sender)
+        $crate::ros2::topic::TopicPublisher::<$topic>::new(sender)
     }};
 
     ($atomic:expr, $app:ident, $node:ident, $($topic:ty),* $(,)?) => {
@@ -98,6 +100,10 @@ macro_rules! topic {
         $(
             topic!($topic, $typ, $url);
         )*
+
+        pub fn register_pub(atomic:Arc<AtomicBool>, app:&mut App, node:&mut Node) {
+            $crate::publisher!(atomic,app, node, $($topic,)*);
+        }
     }
 }
 
@@ -108,5 +114,6 @@ topic!(
     "/tf" as TFMessage as GlobalTransformTopic;
     "/gimbal_pose" as PoseStamped as GimbalPoseTopic;
     "/odom_pose" as PoseStamped as OdomPoseTopic;
+    "/muzzle_pose" as PoseStamped as MuzzlePoseTopic;
     "/camera_pose" as PoseStamped as CameraPoseTopic
 );

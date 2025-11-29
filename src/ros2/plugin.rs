@@ -1,4 +1,4 @@
-use crate::robomaster::prelude::{PowerRune, RuneIndex};
+use crate::robomaster::prelude::{PowerRune, Projectile, RuneIndex};
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{
@@ -39,7 +39,10 @@ pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
 fn capture_rune(
     camera: Single<&GlobalTransform, With<MainCamera>>,
     gimbal: Single<&GlobalTransform, (With<LocalInfantry>, With<InfantryGimbal>)>,
-    muzzle_offset: Single<&GlobalTransform, (With<InfantryLaunchOffset>, With<LocalInfantry>)>,
+    muzzle_offset: Single<
+        (&GlobalTransform, &Transform),
+        (With<InfantryLaunchOffset>, With<LocalInfantry>),
+    >,
 
     runes: Query<(&GlobalTransform, &PowerRune)>,
     targets: Query<(&GlobalTransform, &RuneIndex, &Name)>,
@@ -48,6 +51,7 @@ fn capture_rune(
     tf_publisher: ResMut<TopicPublisher<GlobalTransformTopic>>,
     gimbal_pose_pub: ResMut<TopicPublisher<GimbalPoseTopic>>,
     odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
+    muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
     camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
 ) {
     let cam_transform = camera.into_inner();
@@ -69,10 +73,18 @@ fn capture_rune(
         stamp: stamp.clone(),
         frame_id: "camera_link".to_string(),
     };
+    let muzzle_hdr = Header {
+        stamp: stamp.clone(),
+        frame_id: "muzzle".to_string(),
+    };
+    let muzzle_link_hdr = Header {
+        stamp: stamp.clone(),
+        frame_id: "muzzle_link".to_string(),
+    };
 
     gimbal_pose_pub.publish(pose!(gimbal_hdr));
     odom_pose_pub.publish(pose!(odom_hdr));
-    camera_pose_pub.publish(pose!(camera_hdr));
+    muzzle_pose_pub.publish(pose!(muzzle_link_hdr));
 
     add_tf_frame!(
         transform_stamped,
@@ -90,13 +102,20 @@ fn capture_rune(
     );
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
-    let muzzle_rel = muzzle_offset.reparented_to(gimbal);
+    let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
     add_tf_frame!(
         transform_stamped,
         gimbal_hdr.clone(),
-        "muzzle_link",
+        "muzzle",
         muzzle_rel.translation,
         muzzle_rel.rotation
+    );
+    add_tf_frame!(
+        transform_stamped,
+        muzzle_hdr.clone(),
+        "muzzle_link",
+        Vec3::ZERO,
+        Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)
     );
     add_tf_frame!(
         transform_stamped,
@@ -172,15 +191,8 @@ impl Plugin for ROS2Plugin {
         let mut node = Node::create(Context::create().unwrap(), "simulator", "robomaster").unwrap();
         let signal_arc = Arc::new(AtomicBool::new(false));
 
-        publisher!(
-            signal_arc,
-            app,
-            node,
-            GlobalTransformTopic,
-            GimbalPoseTopic,
-            OdomPoseTopic,
-            CameraPoseTopic
-        );
+        register_pub(signal_arc.clone(), app, &mut node);
+
         let camera_info = Arc::new(publisher!(signal_arc, node, CameraInfoTopic));
         let image_raw = Arc::new(publisher!(signal_arc, node, ImageRawTopic));
         let image_compressed = Arc::new(publisher!(signal_arc, node, ImageCompressedTopic));

@@ -14,7 +14,7 @@ impl Default for VehicleDynamic {
     fn default() -> Self {
         Self {
             max_speed: 4.0,
-            linear_acceleration: 5.0,
+            linear_acceleration: 10.0,
             n: 10.0,
         }
     }
@@ -24,12 +24,14 @@ impl VehicleDynamic {
     pub fn linear(
         &mut self,
         forces: &mut ForcesItem,
+        mass: f32,
         gimbal_transform: &GlobalTransform,
         input: Vec2,
+        dt: f32,
     ) {
         let lin_vel = forces.linear_velocity();
         let acceleration = self.linear_accelerate(input, gimbal_transform, lin_vel);
-        forces.apply_linear_acceleration(acceleration);
+        forces.apply_linear_impulse(acceleration * mass * dt);
     }
 
     fn linear_accelerate(

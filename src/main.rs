@@ -560,7 +560,10 @@ macro_rules! input {
 fn vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<(Forces, &mut VehicleDynamic), (With<InfantryRoot>, With<LocalInfantry>)>,
+    infantry: Single<
+        (Forces, &Mass, &mut VehicleDynamic),
+        (With<InfantryRoot>, With<LocalInfantry>),
+    >,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
         (With<LocalInfantry>, Without<InfantryChassis>),
@@ -577,10 +580,16 @@ fn vehicle_controls(
 ) {
     let input = input!(keyboard, KeyW, KeyA, KeyS, KeyD);
 
-    let (mut forces, mut dynamic) = infantry.into_inner();
+    let (mut forces, &Mass(mass), mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    dynamic.linear(&mut forces, gimbal.into_inner().0, input);
+    dynamic.linear(
+        &mut forces,
+        mass,
+        gimbal.into_inner().0,
+        input,
+        time.delta_secs(),
+    );
 
     let input = input!(keyboard, KeyQ, KeyE);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
@@ -591,7 +600,10 @@ fn vehicle_controls(
 fn remote_vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<(Forces, &mut VehicleDynamic), (With<InfantryRoot>, Without<LocalInfantry>)>,
+    infantry: Single<
+        (Forces, &Mass, &mut VehicleDynamic),
+        (With<InfantryRoot>, Without<LocalInfantry>),
+    >,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
         (Without<LocalInfantry>, Without<InfantryChassis>),
@@ -603,10 +615,16 @@ fn remote_vehicle_controls(
 ) {
     let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
 
-    let (mut forces, mut dynamic) = infantry.into_inner();
+    let (mut forces, &Mass(mass), mut dynamic) = infantry.into_inner();
 
     let dt = time.delta_secs();
-    dynamic.linear(&mut forces, gimbal.into_inner().0, input);
+    dynamic.linear(
+        &mut forces,
+        mass,
+        gimbal.into_inner().0,
+        input,
+        time.delta_secs(),
+    );
 
     let input = input!(keyboard, KeyU, KeyO);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
