@@ -1,8 +1,8 @@
+use crate::Armor;
 use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
 use crate::dataset::writer::{ArmorColor, DatasetWriter};
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
 use crate::ros2::capture::{CaptureCamera, CaptureConfig};
-use crate::{Armor, Controlled, Infantry};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderSystems};
@@ -161,21 +161,14 @@ pub struct CornerData(pub [Vec3; 4]);
 
 fn insert_corner_data(
     mut commands: Commands,
-    children: Query<&Children>,
-    armor_query: Query<&Mesh3d, (With<Armor>, Without<CornerData>)>,
-    infantry: Query<Entity, (With<Infantry>, Without<Controlled>)>,
+    armor_query: Query<(Entity, &Mesh3d), (With<Armor>, Without<CornerData>)>,
     ass: Res<Assets<Mesh>>,
 ) {
-    for infantry in infantry {
-        for armor_entity in children.iter_descendants(infantry) {
-            let Ok(mesh_handle) = armor_query.get(armor_entity) else {
-                continue;
-            };
-            let Some(corners) = extract_corners(ass.get(mesh_handle).unwrap()) else {
-                continue;
-            };
-            commands.entity(armor_entity).insert(CornerData(corners));
-        }
+    for (armor_entity, mesh_handle) in armor_query {
+        let Some(corners) = extract_corners(ass.get(mesh_handle).unwrap()) else {
+            continue;
+        };
+        commands.entity(armor_entity).insert(CornerData(corners));
     }
 }
 
@@ -198,7 +191,7 @@ fn query(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (armor_entity, global_transform, &Armor(team, robot_config), corners, view_visibility) in
+    for (armor_entity, global_transform, &Armor(team, typ, label), corners, view_visibility) in
         armor_query.iter()
     {
         if !view_visibility.get() {
@@ -222,8 +215,8 @@ fn query(
             continue;
         }
         armor_screen.entry(team).or_insert(default()).push((
-            robot_config.0,
-            robot_config.1,
+            typ,
+            label,
             match team {
                 Team::Red => ArmorColor::Red,
                 Team::Blue => ArmorColor::Blue,

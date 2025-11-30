@@ -8,7 +8,8 @@ mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
 use crate::robomaster::prelude::{
-    INFANTRY_THREE_CONFIG, PowerRuneRoot, Projectile, RoboMasterPlugins, RobotConfig, Team,
+    ArmorLabel, ArmorType, INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, Projectile,
+    RoboMasterPlugins, RobotConfig, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::ros2::plugin::ROS2Plugin;
@@ -147,6 +148,7 @@ fn main() {
             TimerMode::Once,
         ))))
         .add_systems(Startup, (setup, setup_projectile))
+        .add_observer(setup_ground)
         .add_observer(setup_vehicle)
         .add_observer(setup_collision)
         .add_observer(on_hit)
@@ -190,6 +192,9 @@ fn main() {
 struct PreciousCollision(
     HashMap<String, (ColliderConstructorHierarchy, CollisionLayers, Visibility)>,
 );
+
+#[derive(Component)]
+struct Ground;
 
 fn setup(
     mut commands: Commands,
@@ -241,6 +246,7 @@ fn setup(
             "GROUND_DENSE".to_string(),
             (trimesh(), layer_env, Visibility::Visible),
         )])),
+        Ground,
     ));
 
     let mut power_rune_col = HashMap::from([(
@@ -313,7 +319,30 @@ fn setup(
 }
 
 #[derive(Component, Clone)]
-pub struct Armor(Team, RobotConfig);
+pub struct Armor(Team, ArmorType, ArmorLabel);
+fn setup_ground(
+    events: On<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    name: Query<&Name>,
+    ground: Single<Entity, With<Ground>>,
+) {
+    let root = events.entity;
+    if ground.into_inner() != root {
+        return;
+    }
+    children.iter_descendants(root).for_each(|e| {
+        let Ok(name) = name.get(e) else {
+            return;
+        };
+        if name.as_str() == "OUTPOST_1" {
+            commands.entity(e).insert(OutpostRoot(Team::Blue));
+        }
+        if name.as_str() == "OUTPOST_2" {
+            commands.entity(e).insert(OutpostRoot(Team::Red));
+        }
+    })
+}
 
 fn setup_vehicle(
     events: On<SceneInstanceReady>,
@@ -387,7 +416,9 @@ fn setup_vehicle(
                         continue;
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_P") {
-                        insert_all_child(&mut commands, e, &children, || Armor(team, config));
+                        insert_all_child(&mut commands, e, &children, || {
+                            Armor(team, config.0, config.1)
+                        });
                         commands.entity(e).insert(ColliderConstructorHierarchy::new(
                             ColliderConstructor::TrimeshFromMeshWithConfig(
                                 TrimeshFlags::MERGE_DUPLICATE_VERTICES,
