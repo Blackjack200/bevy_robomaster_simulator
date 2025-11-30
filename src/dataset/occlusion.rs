@@ -16,7 +16,7 @@ pub struct OcclusionConfig {
 impl Default for OcclusionConfig {
     fn default() -> Self {
         Self {
-            samples_per_vertex: 4,
+            samples_per_vertex: 8,
             visibility_threshold: 0.5,
         }
     }
@@ -65,9 +65,9 @@ impl<'w, 's> Occlusion<'w, 's> {
                 filter: &|e| {
                     e != armor_entity
                         && !self.child_of.iter_ancestors(e).any(|parent| {
-                            self.names
-                                .get(parent)
-                                .is_ok_and(|v| v.starts_with("ARMOR_") && v.ends_with("_L"))
+                            self.names.get(parent).is_ok_and(|v| {
+                                (v.contains("ARMOR_") && v.contains("_L")) || v.ends_with("_P")
+                            })
                         })
                 },
                 early_exit_test: &|hit| {

@@ -18,6 +18,9 @@ pub enum ArmorOcclusionSystems {
 #[derive(Resource, Deref, DerefMut)]
 pub struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
 
+#[derive(Resource, Deref, DerefMut)]
+struct Cooldown(Mutex<Timer>);
+
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
@@ -28,13 +31,29 @@ impl Plugin for DatasetPlugin {
                 DatasetWriter::new("dataset").unwrap(),
             ))))
             .insert_resource(ArmorOnScreen::default())
+            .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
+                1.0,
+                TimerMode::Once,
+            ))))
             .add_systems(
                 ExtractSchedule,
                 query
                     .after(TransformSystems::Propagate)
                     .in_set(ArmorOcclusionSystems::Propagate)
                     .before(RenderSystems::Render)
-                    .run_if(|key: Extract<Res<ButtonInput<KeyCode>>>| key.pressed(KeyCode::Digit1)),
+                    .run_if(
+                        |time: Extract<Res<Time>>,
+                         cd: Res<Cooldown>,
+                         key: Extract<Res<ButtonInput<KeyCode>>>| {
+                            let mut guard = cd.lock().unwrap();
+                            guard.tick(time.delta());
+                            if guard.is_finished() {
+                                guard.reset();
+                                return key.pressed(KeyCode::Digit1);
+                            }
+                            false
+                        },
+                    ),
             );
     }
 }

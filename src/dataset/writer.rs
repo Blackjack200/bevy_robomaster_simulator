@@ -35,7 +35,7 @@ impl DatasetWriter {
     pub fn new(directory: &str) -> std::io::Result<Self> {
         let base = Path::new(directory);
         let image_dir = base.join("images");
-        let label_dir = base.join("labels");
+        let label_dir = base.join("label");
 
         create_dir_all(&image_dir)?;
         create_dir_all(&label_dir)?;

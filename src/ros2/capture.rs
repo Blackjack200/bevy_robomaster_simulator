@@ -163,7 +163,12 @@ fn receive_image_from_buffer(
                 color,
                 typ,
                 label,
-                points: pos.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
+                points: pos.map(|v| {
+                    Vec2::new(
+                        (v.0 as f32) / (config.width as f32),
+                        (v.1 as f32) / (config.height as f32),
+                    )
+                }),
             });
         }
         v
