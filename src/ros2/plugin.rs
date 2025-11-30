@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
+use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::time::Duration;
 use std::{
@@ -40,6 +41,7 @@ macro_rules! tf_tree {
     (stamp: $stamp:expr;$root:literal { $($content:tt)* }) => {{
         let stamp = $stamp;
         let mut transform_stamped = vec![];
+        let _parent = $root.to_string();
         let _current = $root.to_string();
         tf_tree!(@frame transform_stamped, stamp, _parent, _current, $($content)*);
 
@@ -54,31 +56,46 @@ macro_rules! tf_tree {
     };
 
     (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident,
-        $(
-            $curr_name:literal
-            $(as ($translation:expr, $rotation:expr))*
-            $(for $pub_:ident)?
-            $({$($children:tt)*})?
-            $(;)?
-        )*
+        $curr_name:literal as ($translation:expr, $rotation:expr) $(for $pub_:ident)?
+        {$($children:tt)*}
+        $($remaining:tt)*
     ) => {
-        $(
-            {
-                let $parent = $current.clone();
-                let $current = $curr_name.to_string();
-                $(
-                    $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
-                )*
-                $(
-                    $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
-                )*
-                $(
-                    tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($children)*);
-                )*
-            }
-        )*
+        {
+            let $parent = $current.clone();
+            let $current = $curr_name.to_string();
+            $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
+            $(
+                $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
+            )*
+            tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($children)*);
+        }
+        tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($remaining)*);
     };
-    (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident, $(,)? $({})?) => { };
+
+    (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident,
+    $(let $p_name:ident = $p_expr:expr;)*
+        for ($($elem:tt),+$(,)?) in $iter:ident {
+            $(let $name:ident = $expr:expr;)*
+            pub $curr_name:ident as ($translation:expr, $rotation:expr) $(for $pub_:ident)?;
+            $($children:tt)*
+        }
+        $($remaining:tt)*
+    ) => {
+        $(let $p_name = $p_expr;)*
+        for ($($elem),+) in $iter {
+            $(let $name = $expr;)*
+            let $parent = $current.to_string();
+            let $current = $curr_name.to_string();
+            $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
+            $(
+                $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
+            )*
+            tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($children)*);
+        }
+        tf_tree!(@frame $tf_vec, $stamp, $parent, $current, $($remaining)*);
+    };
+
+    (@frame $tf_vec:ident, $stamp:ident, $parent:ident, $current:ident, $(;)? $(,)? $({})?) => { };
 }
 
 fn capture_rune(
@@ -110,54 +127,52 @@ fn capture_rune(
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
+    let targets = targets.into_iter().fold(
+        HashMap::<&PowerRune, Vec<(String, Transform)>>::new(),
+        |mut map, (tf, target, name)| {
+            // only use one target
+            if !name.contains("_ACTIVATED") {
+                return map;
+            }
+            let Ok((rune_tf, rune)) = runes.get(target.1) else {
+                return map;
+            };
+            map.entry(rune).or_default().push((
+                format!("power_rune_{:?}_{:?}", rune.mode(), target.0)
+                    .to_string()
+                    .to_lowercase(),
+                tf.reparented_to(rune_tf),
+            ));
+            map
+        },
+    );
 
-    let mut transform_stamped = tf_tree! {
+    let transform_stamped = tf_tree! {
         stamp: stamp.clone();
 
         "map" {
-            "odom" as (gimbal.translation(), Quat::IDENTITY)for odom_pose_pub{
-                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()) for gimbal_pose_pub{
+            "odom" as (gimbal.translation(), Quat::IDENTITY) for odom_pose_pub {
+                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()) for gimbal_pose_pub {
                     "muzzle" as (muzzle_rel.translation, muzzle_rel.rotation) {
-                        "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub;
+                        "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub{}
                     }
                     "camera_link" as (cam_rel.translation, cam_rel.rotation) {
-                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0));
+                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)){}
                     }
+                }
+            }
+            for (transform, rune) in runes {
+                let name = format!("power_rune_{:?}", rune.mode()).to_string().to_lowercase();
+                let tf = transform.compute_transform();
+                pub name as (tf.translation, tf.rotation);
+                let targets = targets.get(rune).unwrap();
+                for (name, tf) in targets {
+                    pub name as (tf.translation, tf.rotation);
                 }
             }
         }
     };
 
-    for (transform, rune) in runes {
-        add_tf_frame!(
-            transform_stamped,
-            map_hdr.clone(),
-            format!("power_rune_{:?}", rune.mode())
-                .to_string()
-                .to_lowercase(),
-            transform.compute_transform()
-        );
-    }
-    for (target_transform, target, name) in targets {
-        if !name.contains("_ACTIVATED") {
-            continue;
-        }
-        if let Ok((_rune_transform, rune)) = runes.get(target.1) {
-            add_tf_frame!(
-                transform_stamped,
-                Header {
-                    stamp: stamp.clone(),
-                    frame_id: format!("power_rune_{:?}", rune.mode())
-                        .to_string()
-                        .to_lowercase(),
-                },
-                format!("power_rune_{:?}_{:?}", rune.mode(), target.0)
-                    .to_string()
-                    .to_lowercase(),
-                target_transform.reparented_to(_rune_transform)
-            );
-        }
-    }
     tf_publisher.publish(TFMessage {
         transforms: transform_stamped,
     });

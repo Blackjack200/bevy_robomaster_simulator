@@ -8,6 +8,7 @@ use crate::robomaster::visibility::{Activation, Control, Controller, StatefulApp
 use bevy::app::Update;
 use bevy::prelude::{Component, Query, Res, Time, Timer, TimerMode, Transform};
 use rand::Rng;
+use std::hash::{Hash, Hasher};
 
 #[derive(Component)]
 pub struct PowerRune {
@@ -18,6 +19,21 @@ pub struct PowerRune {
     targets: Vec<RuneVisual>,
     rotation: RotationController,
 }
+
+impl Hash for PowerRune {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.team.hash(state);
+        self.mode.hash(state);
+    }
+}
+
+impl PartialEq for PowerRune {
+    fn eq(&self, other: &Self) -> bool {
+        self.team == other.team && self.mode == other.mode
+    }
+}
+
+impl Eq for PowerRune {}
 
 impl PowerRune {
     pub fn team(&self) -> Team {

@@ -10,7 +10,7 @@ pub enum RuneAction {
     FullActivate(usize),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum RuneMode {
     Small,
     Large,

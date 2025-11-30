@@ -34,7 +34,7 @@ macro_rules! add_tf_frame {
         $ls.push(::r2r::geometry_msgs::msg::TransformStamped {
             header: $hdr.clone(),
             child_frame_id: $id.to_string(),
-            transform: crate::ros2::prelude::transform(
+            transform: $crate::ros2::prelude::transform(
                 ::bevy::prelude::Transform::IDENTITY
                     .with_translation($translation)
                     .with_rotation($rotation),
@@ -45,7 +45,7 @@ macro_rules! add_tf_frame {
         $ls.push(::r2r::geometry_msgs::msg::TransformStamped {
             header: $hdr.clone(),
             child_frame_id: $id.to_string(),
-            transform: crate::ros2::prelude::transform($transform),
+            transform: $crate::ros2::prelude::transform($transform),
         });
     };
 }
