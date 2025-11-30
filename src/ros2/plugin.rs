@@ -41,8 +41,8 @@ macro_rules! tf_tree {
     (stamp: $stamp:expr;$root:literal { $($content:tt)* }) => {{
         let stamp = $stamp;
         let mut transform_stamped = vec![];
-        let _parent = $root.to_string();
-        let _current = $root.to_string();
+        let _parent = $root;
+        let _current = $root;
         tf_tree!(@frame transform_stamped, stamp, _parent, _current, $($content)*);
 
         transform_stamped
@@ -51,7 +51,7 @@ macro_rules! tf_tree {
     (@header $stamp:ident, $current:ident) => {
         Header {
             stamp: $stamp.clone(),
-            frame_id: $current.clone(),
+            frame_id: $current.to_string(),
         }
     };
 
@@ -61,8 +61,8 @@ macro_rules! tf_tree {
         $($remaining:tt)*
     ) => {
         {
-            let $parent = $current.clone();
-            let $current = $curr_name.to_string();
+            let $parent = &$current;
+            let $current = $curr_name;
             $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
             $(
                 $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
@@ -84,8 +84,8 @@ macro_rules! tf_tree {
         $(let $p_name = $p_expr;)*
         for ($($elem),+) in $iter {
             $(let $name = $expr;)*
-            let $parent = $current.to_string();
-            let $current = $curr_name.to_string();
+            let $parent = &$current;
+            let $current = $curr_name;
             $crate::add_tf_frame!($tf_vec, tf_tree!(@header $stamp, $parent), $current, $translation, $rotation);
             $(
                 $pub_.publish($crate::pose!(tf_tree!(@header $stamp, $current)));
@@ -127,7 +127,7 @@ fn capture_rune(
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
-    let targets = targets.into_iter().fold(
+    let mut targets = targets.into_iter().fold(
         HashMap::<&PowerRune, Vec<(String, Transform)>>::new(),
         |mut map, (tf, target, name)| {
             // only use one target
@@ -165,7 +165,7 @@ fn capture_rune(
                 let name = format!("power_rune_{:?}", rune.mode()).to_string().to_lowercase();
                 let tf = transform.compute_transform();
                 pub name as (tf.translation, tf.rotation);
-                let targets = targets.get(rune).unwrap();
+                let targets = targets.remove(rune).unwrap();
                 for (name, tf) in targets {
                     pub name as (tf.translation, tf.rotation);
                 }
