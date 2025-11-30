@@ -19,6 +19,7 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::camera::Exposure;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
 use bevy::render::RenderSystems;
@@ -284,6 +285,12 @@ fn setup(
     ));
 
     commands.spawn((
+        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        Transform::from_xyz(2.0, 1.0, 1.0),
+        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
+    ));
+
+    commands.spawn((
         Camera3d::default(),
         Camera::default(),
         PrimaryEguiContext,
@@ -295,6 +302,7 @@ fn setup(
         }),
         Exposure::SUNLIGHT,
         Msaa::Off,
+        Tonemapping::None,
         Fxaa::default(),
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
@@ -386,13 +394,13 @@ fn setup_vehicle(
                             ),
                         ));
                     }
-                    if name.starts_with("ARMOR_") && name.ends_with("_L") {
-                        insert_all_child(&mut commands, e, &children, || Armor(team, config));
-                        commands.entity(e).insert(ColliderConstructorHierarchy::new(
-                            ColliderConstructor::TrimeshFromMeshWithConfig(
-                                TrimeshFlags::MERGE_DUPLICATE_VERTICES,
-                            ),
-                        ));
+                    if name.starts_with("ARMOR_") && name.ends_with("_L_BLUE") && team == Team::Red
+                    {
+                        insert_all_child(&mut commands, e, &children, || Visibility::Hidden);
+                    }
+                    if name.starts_with("ARMOR_") && name.ends_with("_L_RED") && team == Team::Blue
+                    {
+                        insert_all_child(&mut commands, e, &children, || Visibility::Hidden);
                     }
                     for (ee, n, &ChildOf(r)) in node_query {
                         if r == e {

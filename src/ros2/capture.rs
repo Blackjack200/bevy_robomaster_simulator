@@ -4,6 +4,7 @@ use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::Exposure;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::render::texture::GpuImage;
 use bevy::render::view::Hdr;
@@ -321,6 +322,7 @@ fn setup_camera(
     commands.spawn((
         Camera3d::default(),
         Bloom::NATURAL,
+        Tonemapping::None,
         Camera {
             target: render_target_handle.0.clone().into(),
             ..default()
