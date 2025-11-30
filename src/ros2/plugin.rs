@@ -1,9 +1,7 @@
-use crate::robomaster::prelude::{PowerRune, Projectile, RuneIndex};
+use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
-use crate::{
-    InfantryGimbal, InfantryLaunchOffset, LocalInfantry, add_tf_frame, arc_mutex, pose, publisher,
-};
+use crate::{Controlled, InfantryGimbal, InfantryLaunchOffset, arc_mutex, publisher};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
@@ -100,10 +98,10 @@ macro_rules! tf_tree {
 
 fn capture_rune(
     camera: Single<&GlobalTransform, With<MainCamera>>,
-    gimbal: Single<&GlobalTransform, (With<LocalInfantry>, With<InfantryGimbal>)>,
+    gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
     muzzle_offset: Single<
         (&GlobalTransform, &Transform),
-        (With<InfantryLaunchOffset>, With<LocalInfantry>),
+        (With<InfantryLaunchOffset>, With<Controlled>),
     >,
 
     runes: Query<(&GlobalTransform, &PowerRune)>,
@@ -117,13 +115,6 @@ fn capture_rune(
     camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
 ) {
     let cam_transform = camera.into_inner();
-
-    let stamp = Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
-    let map_hdr = Header {
-        stamp: stamp.clone(),
-        frame_id: "map".to_string(),
-    };
-
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
@@ -148,7 +139,7 @@ fn capture_rune(
     );
 
     let transform_stamped = tf_tree! {
-        stamp: stamp.clone();
+        stamp: Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
 
         "map" {
             "odom" as (gimbal.translation(), Quat::IDENTITY) for odom_pose_pub {
@@ -157,7 +148,7 @@ fn capture_rune(
                         "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub{}
                     }
                     "camera_link" as (cam_rel.translation, cam_rel.rotation) {
-                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)){}
+                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)) for camera_pose_pub {}
                     }
                 }
             }

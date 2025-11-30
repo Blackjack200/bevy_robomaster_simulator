@@ -1,8 +1,9 @@
-use crate::robomaster::{common, power_rune};
+use crate::robomaster::{armor, common, power_rune};
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
 use crate::robomaster::visibility::StatefulAppearancePlugin;
+pub use armor::prelude::*;
 pub use common::*;
 pub use power_rune::prelude::*;
 

@@ -1,7 +1,8 @@
 use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
-use crate::dataset::writer::DatasetWriter;
+use crate::dataset::writer::{ArmorColor, DatasetWriter};
+use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
 use crate::ros2::capture::{CaptureCamera, CaptureConfig};
-use crate::{Armor, InfantryRoot, LocalInfantry};
+use crate::{Armor, Controlled, Infantry};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderSystems};
@@ -150,19 +151,19 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
         p3.0, // 右上
     ]
 }
+type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 
 #[derive(Resource, Default, DerefMut, Deref)]
-pub struct ArmorOnScreen(pub HashMap<String, HashMap<String, [(u32, u32); 4]>>);
+pub struct ArmorOnScreen(pub HashMap<Team, Vec<ArmorScreenData>>);
 
 #[derive(Component, Deref, DerefMut, Clone)]
-#[require(Armor)]
 pub struct CornerData(pub [Vec3; 4]);
 
 fn insert_corner_data(
     mut commands: Commands,
     children: Query<&Children>,
     armor_query: Query<&Mesh3d, (With<Armor>, Without<CornerData>)>,
-    infantry: Query<Entity, (With<InfantryRoot>, Without<LocalInfantry>)>,
+    infantry: Query<Entity, (With<Infantry>, Without<Controlled>)>,
     ass: Res<Assets<Mesh>>,
 ) {
     for infantry in infantry {
@@ -197,13 +198,8 @@ fn query(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (
-        armor_entity,
-        global_transform,
-        Armor(infantry_name, armor_name),
-        corners,
-        view_visibility,
-    ) in armor_query.iter()
+    for (armor_entity, global_transform, &Armor(team, robot_config), corners, view_visibility) in
+        armor_query.iter()
     {
         if !view_visibility.get() {
             continue;
@@ -214,11 +210,7 @@ fn query(
             .into_iter()
             .map(|corner| global_transform.transform_point(corner))
             .filter_map(|corner| {
-                let Some(pos) =
-                    world_to_screen(corner, camera_global_transform, projection, &config)
-                else {
-                    return None;
-                };
+                let pos = world_to_screen(corner, camera_global_transform, projection, &config)?;
                 Some((corner, pos))
             })
             .collect();
@@ -229,15 +221,20 @@ fn query(
         if !occlusion.visible(camera_pos, armor_entity, &corners_ordered) {
             continue;
         }
-        armor_screen
-            .entry(infantry_name.clone())
-            .or_insert(default())
-            .insert(armor_name.clone(), corners_ordered.map(|v| v.1));
+        armor_screen.entry(team).or_insert(default()).push((
+            robot_config.0,
+            robot_config.1,
+            match team {
+                Team::Red => ArmorColor::Red,
+                Team::Blue => ArmorColor::Blue,
+            },
+            corners_ordered.map(|v| v.1),
+        ));
     }
-    for (infantry_name, armor_screen) in armor_screen.iter() {
+    for (team, armor_screen) in armor_screen.iter() {
         println!(
-            "Infantry {} armor count: {}",
-            infantry_name,
+            "Infantry from team {:?} armor count: {}",
+            team,
             armor_screen.len()
         );
     }

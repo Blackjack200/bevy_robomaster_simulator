@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 mod dataset;
 mod handler;
 mod robomaster;
@@ -6,7 +7,9 @@ mod statistic;
 mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
-use crate::robomaster::prelude::{PowerRuneRoot, Projectile, RoboMasterPlugins};
+use crate::robomaster::prelude::{
+    INFANTRY_THREE_CONFIG, PowerRuneRoot, Projectile, RoboMasterPlugins, RobotConfig, Team,
+};
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::ros2::plugin::ROS2Plugin;
 use crate::util::bevy::insert_all_child;
@@ -38,10 +41,10 @@ struct MainCamera {
 }
 
 #[derive(Component)]
-struct LocalInfantry;
+struct Controlled;
 
 #[derive(Component)]
-struct InfantryRoot;
+struct Infantry(Team, RobotConfig);
 
 #[derive(Resource, PartialEq, Deref, DerefMut)]
 struct CameraMode(pub FollowingType);
@@ -270,14 +273,14 @@ fn setup(
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(0.0, 1.0, 0.0),
-        InfantryRoot,
-        LocalInfantry,
+        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
+        Controlled,
     ));
 
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
-        InfantryRoot,
+        Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
     ));
 
     commands.spawn((
@@ -301,25 +304,26 @@ fn setup(
     ));
 }
 
-#[derive(Component, Clone, Default)]
-pub struct Armor(String, String);
+#[derive(Component, Clone)]
+pub struct Armor(Team, RobotConfig);
 
 fn setup_vehicle(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
-    root_query: Query<(Entity, Option<&LocalInfantry>), With<InfantryRoot>>,
-    secondary_query: Query<&ChildOf, (Without<InfantryRoot>, Without<SceneInstance>)>,
-    node_query: Query<(Entity, &Name, &ChildOf), (Without<InfantryRoot>, Without<SceneInstance>)>,
+    root_query: Query<(Entity, &Infantry, Option<&Controlled>)>,
+    secondary_query: Query<&ChildOf, (Without<Infantry>, Without<SceneInstance>)>,
+    node_query: Query<(Entity, &Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
 ) {
     let root = events.entity;
     if root_query.get(root).is_err() {
         return;
     }
-    let is_local = root_query.get(root).unwrap().1.is_some();
+    let (root, &Infantry(team, config), is_local) = root_query.get(root).unwrap();
+    let is_local = is_local.is_some();
     if is_local {
         children.iter_descendants(root).for_each(|e| {
-            commands.entity(e).insert(LocalInfantry);
+            commands.entity(e).insert(Controlled);
         });
     }
     commands.entity(root).insert((
@@ -375,9 +379,15 @@ fn setup_vehicle(
                         continue;
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_P") {
-                        insert_all_child(&mut commands, e, &children, || {
-                            Armor(node.to_string(), name.to_string())
-                        });
+                        insert_all_child(&mut commands, e, &children, || Armor(team, config));
+                        commands.entity(e).insert(ColliderConstructorHierarchy::new(
+                            ColliderConstructor::TrimeshFromMeshWithConfig(
+                                TrimeshFlags::MERGE_DUPLICATE_VERTICES,
+                            ),
+                        ));
+                    }
+                    if name.starts_with("ARMOR_") && name.ends_with("_L") {
+                        insert_all_child(&mut commands, e, &children, || Armor(team, config));
                         commands.entity(e).insert(ColliderConstructorHierarchy::new(
                             ColliderConstructor::TrimeshFromMeshWithConfig(
                                 TrimeshFlags::MERGE_DUPLICATE_VERTICES,
@@ -444,13 +454,13 @@ fn projectile_launch(
     setting: Res<ProjectileSetting>,
     infantry: Single<
         (&Transform, &LinearVelocity, &AngularVelocity),
-        (With<InfantryRoot>, With<LocalInfantry>),
+        (With<Infantry>, With<Controlled>),
     >,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
-        (With<LocalInfantry>, Without<InfantryChassis>),
+        (With<Controlled>, Without<InfantryChassis>),
     >,
-    launch_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryLaunchOffset>)>,
+    launch_offset: Single<&Transform, (With<Controlled>, With<InfantryLaunchOffset>)>,
 ) {
     increase_launch();
     let direction = (gimbal.0.rotation() * launch_offset.rotation)
@@ -520,13 +530,9 @@ fn setup_collision(
     commands.entity(events.entity).remove::<PreciousCollision>();
 }
 
-// 单位 m/s^2
-const VEHICLE_ACCEL: f32 = 10.0;
 // 单位 rad/s
 const VEHICLE_ROTATION_SPEED: f32 = 3.0;
 const GIMBAL_ROTATION_SPEED: f32 = 3.0;
-
-const MAX_VEHICLE_VELOCITY: f32 = 6.0;
 
 macro_rules! input {
     ($keyboard:ident, $forward:ident,$left:ident,$backward:ident,$right:ident) => {{
@@ -560,21 +566,18 @@ macro_rules! input {
 fn vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<
-        (Forces, &Mass, &mut VehicleDynamic),
-        (With<InfantryRoot>, With<LocalInfantry>),
-    >,
+    infantry: Single<(Forces, &Mass, &mut VehicleDynamic), (With<Infantry>, With<Controlled>)>,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
-        (With<LocalInfantry>, Without<InfantryChassis>),
+        (With<Controlled>, Without<InfantryChassis>),
     >,
     chassis: Single<
         (&mut Transform, &mut InfantryChassis),
         (
-            With<LocalInfantry>,
+            With<Controlled>,
             Without<InfantryGimbal>,
             With<InfantryChassis>,
-            Without<InfantryRoot>,
+            Without<Infantry>,
         ),
     >,
 ) {
@@ -600,17 +603,14 @@ fn vehicle_controls(
 fn remote_vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<
-        (Forces, &Mass, &mut VehicleDynamic),
-        (With<InfantryRoot>, Without<LocalInfantry>),
-    >,
+    infantry: Single<(Forces, &Mass, &mut VehicleDynamic), (With<Infantry>, Without<Controlled>)>,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
-        (Without<LocalInfantry>, Without<InfantryChassis>),
+        (Without<Controlled>, Without<InfantryChassis>),
     >,
     chassis: Single<
         (&mut Transform, &mut InfantryChassis),
-        (Without<LocalInfantry>, Without<InfantryGimbal>),
+        (Without<Controlled>, Without<InfantryGimbal>),
     >,
 ) {
     let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
@@ -637,7 +637,7 @@ fn gimbal_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
-        (With<LocalInfantry>, Without<InfantryChassis>),
+        (With<Controlled>, Without<InfantryChassis>),
     >,
 ) {
     let dt = time.delta_secs();
@@ -662,7 +662,7 @@ fn remote_gimbal_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
-        (Without<LocalInfantry>, Without<InfantryChassis>),
+        (Without<Controlled>, Without<InfantryChassis>),
     >,
 ) {
     let dt = time.delta_secs();
@@ -692,12 +692,11 @@ fn following_controls(mut mode: ResMut<CameraMode>, keyboard: Res<ButtonInput<Ke
 }
 
 fn update_camera_follow(
-    camera_query: Single<(&mut Transform, &MainCamera), Without<LocalInfantry>>,
-    infantry: Single<&Transform, (With<InfantryRoot>, With<LocalInfantry>)>,
-    gimbal: Single<&Transform, (With<LocalInfantry>, With<InfantryGimbal>)>,
-    view_offset: Single<&Transform, (With<LocalInfantry>, With<InfantryViewOffset>)>,
+    camera_query: Single<(&mut Transform, &MainCamera), Without<Controlled>>,
+    infantry: Single<&Transform, (With<Infantry>, With<Controlled>)>,
+    gimbal: Single<&Transform, (With<Controlled>, With<InfantryGimbal>)>,
+    view_offset: Single<&Transform, (With<Controlled>, With<InfantryViewOffset>)>,
     mode: Res<CameraMode>,
-    time: Res<Time>,
 ) {
     let gimbal_transform = gimbal.into_inner();
     let (mut camera_transform, camera_offset) = camera_query.into_inner();
@@ -729,7 +728,7 @@ fn freecam_controls(
     mode: Res<CameraMode>,
     mut mouse_motion_events: MessageReader<MouseMotion>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    camera_query: Single<&mut Transform, (With<MainCamera>, Without<InfantryRoot>)>,
+    camera_query: Single<&mut Transform, (With<MainCamera>, Without<Infantry>)>,
 ) {
     if mode.0 != FollowingType::Free {
         return;

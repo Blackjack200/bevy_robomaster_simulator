@@ -1,5 +1,5 @@
 use crate::dataset::prelude::{ArmorOnScreen, DatasetHandle};
-use crate::dataset::writer::{ArmorColor, ArmorEntry, ArmorLabel, ArmorSize};
+use crate::dataset::writer::ArmorEntry;
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
@@ -108,7 +108,7 @@ impl render_graph::Node for ImageCopyDriver {
         encoder.copy_texture_to_buffer(
             src_image.texture.as_image_copy(),
             TexelCopyBufferInfo {
-                buffer: &buffer,
+                buffer,
                 layout: TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(
@@ -156,13 +156,13 @@ fn receive_image_from_buffer(
     let config = config.clone();
 
     let len = dd.0.len();
-    let armor = dd.0.drain().fold(Vec::with_capacity(len), |mut v, (a, n)| {
-        for (k, ent) in n {
+    let armor = dd.0.drain().fold(Vec::with_capacity(len), |mut v, (_, n)| {
+        for (typ, label, color, pos) in n {
             v.push(ArmorEntry {
-                color: ArmorColor::Blue,
-                size: ArmorSize::Small,
-                label: ArmorLabel::Three,
-                points: ent.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
+                color,
+                typ,
+                label,
+                points: pos.map(|v| Vec2::new(v.0 as f32, v.1 as f32).normalize_or_zero()),
             });
         }
         v
@@ -214,7 +214,7 @@ fn receive_image_from_buffer(
                 height,
                 image_data.clone(),
             ));*/
-            if armor.len() > 0 {
+            if !armor.is_empty() {
                 info!("wrote 1 dataset entry: {}", armor.len());
                 dw.lock()
                     .unwrap()

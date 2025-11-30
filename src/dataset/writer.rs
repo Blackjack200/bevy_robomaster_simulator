@@ -1,3 +1,4 @@
+use crate::robomaster::prelude::{ArmorLabel, ArmorType};
 use bevy::prelude::*;
 use image::ExtendedColorType::Rgb8;
 use image::codecs::jpeg::JpegEncoder;
@@ -5,14 +6,6 @@ use std::fs::{File, create_dir_all};
 use std::io::ErrorKind::Other;
 use std::io::{BufWriter, Error, Write};
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Clone)]
-pub struct ArmorEntry {
-    pub color: ArmorColor,
-    pub size: ArmorSize,
-    pub label: ArmorLabel,
-    pub points: [Vec2; 4],
-}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone)]
@@ -23,24 +16,12 @@ pub enum ArmorColor {
     Purple = 3,
 }
 
-#[repr(u8)]
-#[derive(Debug, Copy, Clone)]
-pub enum ArmorSize {
-    Small = 0,
-    Large = 1,
-}
-
-#[repr(u8)]
-#[derive(Debug, Copy, Clone)]
-pub enum ArmorLabel {
-    G = 0,
-    One = 1,
-    Two = 2,
-    Three = 3,
-    Four = 4,
-    Five = 5,
-    O = 6,
-    Base = 7,
+#[derive(Debug, Clone)]
+pub struct ArmorEntry {
+    pub color: ArmorColor,
+    pub typ: ArmorType,
+    pub label: ArmorLabel,
+    pub points: [Vec2; 4],
 }
 
 #[derive(Resource)]
@@ -92,7 +73,7 @@ impl DatasetWriter {
             write!(
                 writer,
                 "{} {} {}",
-                entry.color as u8, entry.size as u8, entry.label as u8
+                entry.color as u8, entry.typ as u8, entry.label as u8
             )?;
             for p in &entry.points {
                 write!(writer, " {:.6} {:.6}", p.x, p.y)?;
