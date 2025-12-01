@@ -65,23 +65,21 @@ fn build_targets(
             .resolution(30_000 / 3);
         let handle = param.gizmo_assets.add(gizmo);
         */
-        for entity in [deactivated, activating, activated] {
-            if let Some(entity) = entity {
-                insert_all_child(&mut param.commands, entity, &mut param.children, || {
-                    (
-                        RuneIndex(logical_index, face_entity),
-                        CollisionEventsEnabled,
-                        /*Gizmo {
-                            handle: handle.clone(),
-                            line_config: GizmoLineConfig {
-                                width: 2.,
-                                ..default()
-                            },
+        for entity in [deactivated, activating, activated].into_iter().flatten() {
+            insert_all_child(&mut param.commands, entity, &param.children, || {
+                (
+                    RuneIndex(logical_index, face_entity),
+                    CollisionEventsEnabled,
+                    /*Gizmo {
+                        handle: handle.clone(),
+                        line_config: GizmoLineConfig {
+                            width: 2.,
                             ..default()
-                        },*/
-                    )
-                });
-            }
+                        },
+                        ..default()
+                    },*/
+                )
+            });
         }
 
         let mut legging_segments: [Controller; 3] = [
@@ -188,12 +186,7 @@ fn setup_power_rune(
                 Team::Blue
             },
             mode,
-            Controller::new_visibility(
-                deactivated,
-                activated.clone(),
-                activated.clone(),
-                activated,
-            ),
+            Controller::new_visibility(deactivated, activated, activated, activated),
             targets,
             (index & 1) > 0,
         ));

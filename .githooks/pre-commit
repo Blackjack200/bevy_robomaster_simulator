@@ -1,4 +1,21 @@
-# .githooks/pre-commit
 #!/bin/sh
-echo "Running cargo fmt..."
-cargo fmt
+set -e
+
+echo "Running cargo fmt --check..."
+cargo fmt -- --check
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ Rust code is not formatted. Please run 'cargo fmt'."
+    exit 1
+fi
+
+echo "Running cargo check..."
+source ./bj_env.sh
+cargo check
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ cargo check failed."
+    exit 1
+fi
+
+echo "✅ All checks passed. Commit allowed."
