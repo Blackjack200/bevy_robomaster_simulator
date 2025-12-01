@@ -24,7 +24,6 @@ pub struct ArmorEntry {
     pub points: [Vec2; 4],
 }
 
-#[derive(Resource)]
 pub struct DatasetWriter {
     image_dir: PathBuf,
     label_dir: PathBuf,

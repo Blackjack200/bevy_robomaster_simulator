@@ -1,11 +1,11 @@
 use crate::Armor;
 use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
-use crate::dataset::writer::{ArmorColor, DatasetWriter};
+use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
-use crate::ros2::capture::{CaptureCamera, CaptureConfig};
+use crate::ros2::capture::{CaptureCamera, CaptureConfig, ImageHandle};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use bevy::render::{Extract, RenderApp, RenderSystems};
+use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
 use std::collections::HashMap;
 use std::mem::swap;
 use std::sync::{Arc, Mutex};
@@ -16,7 +16,7 @@ pub enum ArmorOcclusionSystems {
 }
 
 #[derive(Resource, Deref, DerefMut)]
-pub struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
+struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct Cooldown(Mutex<Timer>);
@@ -25,35 +25,27 @@ pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(OcclusionConfig::default())
-            .add_systems(Update, insert_corner_data);
-        app.sub_app_mut(RenderApp)
-            .insert_resource(DatasetHandle(Arc::new(Mutex::new(
-                DatasetWriter::new("dataset").unwrap(),
-            ))))
-            .insert_resource(ArmorOnScreen::default())
             .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
                 1.0,
                 TimerMode::Once,
             ))))
+            .insert_resource(DatasetHandle(Arc::new(Mutex::new(
+                DatasetWriter::new("dataset").unwrap(),
+            ))))
+            .add_systems(Update, insert_corner_data)
             .add_systems(
-                ExtractSchedule,
-                query
-                    .after(TransformSystems::Propagate)
-                    .in_set(ArmorOcclusionSystems::Propagate)
-                    .before(RenderSystems::Render)
-                    .run_if(
-                        |time: Extract<Res<Time>>,
-                         cd: Res<Cooldown>,
-                         key: Extract<Res<ButtonInput<KeyCode>>>| {
-                            let mut guard = cd.lock().unwrap();
-                            guard.tick(time.delta());
-                            if guard.is_finished() {
-                                guard.reset();
-                                return key.pressed(KeyCode::Digit1);
-                            }
-                            false
-                        },
-                    ),
+                Update,
+                capture.in_set(ArmorOcclusionSystems::Propagate).run_if(
+                    |time: Res<Time>, cd: Res<Cooldown>, key: Res<ButtonInput<KeyCode>>| {
+                        let mut guard = cd.lock().unwrap();
+                        guard.tick(time.delta());
+                        if guard.is_finished() {
+                            guard.reset();
+                            return key.pressed(KeyCode::Digit1);
+                        }
+                        false
+                    },
+                ),
             );
     }
 }
@@ -172,9 +164,6 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
 }
 type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 
-#[derive(Resource, Default, DerefMut, Deref)]
-pub struct ArmorOnScreen(pub HashMap<Team, Vec<ArmorScreenData>>);
-
 #[derive(Component, Deref, DerefMut, Clone)]
 pub struct CornerData(pub [Vec3; 4]);
 
@@ -191,23 +180,27 @@ fn insert_corner_data(
     }
 }
 
-fn query(
-    armor_query: Extract<
-        Query<(
-            Entity,
-            &GlobalTransform,
-            &Armor,
-            &CornerData,
-            &ViewVisibility,
-        )>,
-    >,
-    camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
-    config: Extract<Res<CaptureConfig>>,
-    mut armor_screen: ResMut<ArmorOnScreen>,
-    mut occlusion: Extract<Occlusion>,
+fn capture(mut commands: Commands, handle: Res<ImageHandle>) {
+    commands
+        .spawn(Screenshot::image(handle.clone()))
+        .observe(on_captured);
+}
+fn on_captured(
+    img: On<ScreenshotCaptured>,
+    armor_query: Query<(
+        Entity,
+        &GlobalTransform,
+        &Armor,
+        &CornerData,
+        &ViewVisibility,
+    )>,
+    camera: Single<(&Projection, &GlobalTransform), With<CaptureCamera>>,
+    config: Res<CaptureConfig>,
+    writer: ResMut<DatasetHandle>,
+    mut occlusion: Occlusion,
 ) {
-    armor_screen.clear();
-    let (projection, camera_global_transform) = **camera;
+    let mut armor_screen: HashMap<Team, Vec<ArmorScreenData>> = HashMap::new();
+    let (projection, camera_global_transform) = camera.into_inner();
     let camera_pos = camera_global_transform.translation();
 
     for (armor_entity, global_transform, &Armor(team, typ, label), corners, view_visibility) in
@@ -249,5 +242,43 @@ fn query(
             team,
             armor_screen.len()
         );
+    }
+
+    let len = armor_screen.len();
+    let armor = armor_screen
+        .drain()
+        .fold(Vec::with_capacity(len), |mut v, (_, n)| {
+            for (typ, label, color, pos) in n {
+                v.push(ArmorEntry {
+                    color,
+                    typ,
+                    label,
+                    points: pos.map(|v| {
+                        Vec2::new(
+                            (v.0 as f32) / (config.width as f32),
+                            (v.1 as f32) / (config.height as f32),
+                        )
+                    }),
+                });
+            }
+            v
+        });
+    if !armor.is_empty() {
+        info!("wrote 1 dataset entry: {}", armor.len());
+        writer
+            .lock()
+            .unwrap()
+            .write_entry(
+                config.height,
+                config.width,
+                &img.image
+                    .clone()
+                    .try_into_dynamic()
+                    .unwrap()
+                    .into_rgb8()
+                    .into_raw(),
+                &armor,
+            )
+            .unwrap();
     }
 }

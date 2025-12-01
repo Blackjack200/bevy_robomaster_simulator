@@ -1,5 +1,3 @@
-use crate::dataset::prelude::{ArmorOnScreen, DatasetHandle};
-use crate::dataset::writer::ArmorEntry;
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
@@ -138,8 +136,6 @@ fn receive_image_from_buffer(
     render_device: Res<RenderDevice>,
     config: Res<CaptureConfig>,
     ctx: Res<RosCaptureContext>,
-    dw: Res<DatasetHandle>,
-    mut dd: ResMut<ArmorOnScreen>,
 ) {
     let ctx = Arc::new(ctx.clone());
     let config = Arc::new(config.clone());
@@ -156,24 +152,6 @@ fn receive_image_from_buffer(
     let ctx = ctx.clone();
     let config = config.clone();
 
-    let len = dd.0.len();
-    let armor = dd.0.drain().fold(Vec::with_capacity(len), |mut v, (_, n)| {
-        for (typ, label, color, pos) in n {
-            v.push(ArmorEntry {
-                color,
-                typ,
-                label,
-                points: pos.map(|v| {
-                    Vec2::new(
-                        (v.0 as f32) / (config.width as f32),
-                        (v.1 as f32) / (config.height as f32),
-                    )
-                }),
-            });
-        }
-        v
-    });
-    let dw = dw.clone();
     AsyncComputeTaskPool::get()
         .spawn(async move {
             let buffer_slice = buffer.slice(..);
@@ -220,13 +198,6 @@ fn receive_image_from_buffer(
                 height,
                 image_data.clone(),
             ));*/
-            if !armor.is_empty() {
-                info!("wrote 1 dataset entry: {}", armor.len());
-                dw.lock()
-                    .unwrap()
-                    .write_entry(config.height, config.width, image_data, &armor)
-                    .unwrap();
-            }
             let (camera_info, image) = compute_camera(
                 config.fov_y,
                 optical_frame_hdr,
@@ -254,7 +225,7 @@ pub struct RosCapturePlugin {
 }
 
 #[derive(Resource, Deref)]
-struct ImageHandle(Handle<Image>);
+pub struct ImageHandle(Handle<Image>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct RateLimiter(Mutex<Timer>);
