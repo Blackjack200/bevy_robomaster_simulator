@@ -66,20 +66,25 @@ impl<'w, 's> Occlusion<'w, 's> {
                     e != armor_entity
                         && !self.child_of.iter_ancestors(e).any(|parent| {
                             self.names.get(parent).is_ok_and(|v| {
-                                (v.contains("ARMOR_") && v.contains("_L")) || v.ends_with("_P")
+                                (v.contains("ARMOR_") && v.contains("_L"))
+                                    || (v.contains("ARMOR_") && v.ends_with("_P"))
                             })
                         })
                 },
                 early_exit_test: &|hit| {
                     if let Ok(transform) = self.global_transforms.get(hit) {
-                        return transform.translation().distance(camera_pos) < total_dist;
+                        return transform.translation().distance(camera_pos) <= total_dist;
                     }
                     true
                 },
             },
         );
-        hits.iter()
-            .any(|(_, hit)| total_dist - hit.distance > f32::EPSILON)
+        hits.iter().any(|(e, hit)| {
+            if total_dist - hit.distance > f32::EPSILON {
+                println!("{:?}", self.names.get(*e));
+            }
+            return total_dist - hit.distance > f32::EPSILON;
+        })
     }
 
     pub fn visible(

@@ -1,11 +1,14 @@
 use crate::Armor;
+use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
 use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
-use crate::ros2::capture::{CaptureCamera, CaptureConfig, ImageHandle};
+use crate::ros2::capture::CaptureCamera;
+use bevy::ecs::world::DeferredWorld;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured};
+use bevy::render::sync_world::SyncToRenderWorld;
+use bevy::render::{Extract, RenderApp, RenderSystems};
 use std::collections::HashMap;
 use std::mem::swap;
 use std::sync::{Arc, Mutex};
@@ -25,27 +28,34 @@ pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(OcclusionConfig::default())
-            .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
-                1.0,
-                TimerMode::Once,
-            ))))
+            .add_systems(Update, insert_corner_data);
+        app.sub_app_mut(RenderApp)
             .insert_resource(DatasetHandle(Arc::new(Mutex::new(
                 DatasetWriter::new("dataset").unwrap(),
             ))))
-            .add_systems(Update, insert_corner_data)
+            .insert_resource(Data::default())
+            .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
+                0.25,
+                TimerMode::Once,
+            ))))
             .add_systems(
-                Update,
-                capture.in_set(ArmorOcclusionSystems::Propagate).run_if(
-                    |time: Res<Time>, cd: Res<Cooldown>, key: Res<ButtonInput<KeyCode>>| {
-                        let mut guard = cd.lock().unwrap();
-                        guard.tick(time.delta());
-                        if guard.is_finished() {
-                            guard.reset();
-                            return key.pressed(KeyCode::Digit1);
-                        }
-                        false
-                    },
-                ),
+                ExtractSchedule,
+                capture
+                    .in_set(ArmorOcclusionSystems::Propagate)
+                    .run_if(
+                        |time: Res<Time>,
+                         cd: Res<Cooldown>,
+                         key: Extract<Res<ButtonInput<KeyCode>>>| {
+                            let mut guard = cd.lock().unwrap();
+                            guard.tick(time.delta());
+                            if guard.is_finished() {
+                                guard.reset();
+                                return key.pressed(KeyCode::Digit1);
+                            }
+                            false
+                        },
+                    )
+                    .before(RenderSystems::Render),
             );
     }
 }
@@ -165,6 +175,7 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
 type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 
 #[derive(Component, Deref, DerefMut, Clone)]
+#[require(SyncToRenderWorld)]
 pub struct CornerData(pub [Vec3; 4]);
 
 fn insert_corner_data(
@@ -180,27 +191,73 @@ fn insert_corner_data(
     }
 }
 
-fn capture(mut commands: Commands, handle: Res<ImageHandle>) {
-    commands
-        .spawn(Screenshot::image(handle.clone()))
-        .observe(on_captured);
+#[derive(Default)]
+pub struct DatasetSnapshotCreator {}
+#[derive(Default, Resource, Deref, DerefMut)]
+struct Data(Mutex<Vec<ArmorEntry>>);
+
+impl GpuCaptureHandler for DatasetSnapshotCreator {
+    fn captured(&self, world: &World) -> Option<Box<dyn SnapshotSync>> {
+        let mut guard = world.resource::<Data>().lock().unwrap();
+        let data = guard.drain(..).collect::<Vec<_>>();
+        if !data.is_empty() {
+            println!("annie are you ok?");
+            Some(Box::new(DatasetSnapshotSync { data }))
+        } else {
+            None
+        }
+    }
 }
-fn on_captured(
-    img: On<ScreenshotCaptured>,
-    armor_query: Query<(
-        Entity,
-        &GlobalTransform,
-        &Armor,
-        &CornerData,
-        &ViewVisibility,
-    )>,
-    camera: Single<(&Projection, &GlobalTransform), With<CaptureCamera>>,
+
+struct DatasetSnapshotSync {
+    data: Vec<ArmorEntry>,
+}
+
+impl SnapshotSync for DatasetSnapshotSync {
+    fn captured(
+        self: Box<Self>,
+        world: &mut DeferredWorld,
+        config: &CaptureConfig,
+    ) -> Box<dyn SnapshotAsync> {
+        Box::new(DatasetSnapshot {
+            data: self.data,
+            writer: world.resource::<DatasetHandle>().0.clone(),
+        })
+    }
+}
+
+struct DatasetSnapshot {
+    data: Vec<ArmorEntry>,
+    writer: Arc<Mutex<DatasetWriter>>,
+}
+
+impl SnapshotAsync for DatasetSnapshot {
+    fn captured(&mut self, width: u32, height: u32, image: &[u8]) {
+        self.writer
+            .lock()
+            .unwrap()
+            .write_entry(height, width, image, &self.data)
+            .unwrap();
+    }
+}
+
+fn capture(
+    armor_query: Extract<
+        Query<(
+            Entity,
+            &GlobalTransform,
+            &Armor,
+            &CornerData,
+            &ViewVisibility,
+        )>,
+    >,
+    camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
+    mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
-    writer: ResMut<DatasetHandle>,
-    mut occlusion: Occlusion,
+    armor_r: Res<Data>,
 ) {
     let mut armor_screen: HashMap<Team, Vec<ArmorScreenData>> = HashMap::new();
-    let (projection, camera_global_transform) = camera.into_inner();
+    let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
     for (armor_entity, global_transform, &Armor(team, typ, label), corners, view_visibility) in
@@ -244,41 +301,20 @@ fn on_captured(
         );
     }
 
-    let len = armor_screen.len();
-    let armor = armor_screen
-        .drain()
-        .fold(Vec::with_capacity(len), |mut v, (_, n)| {
-            for (typ, label, color, pos) in n {
-                v.push(ArmorEntry {
-                    color,
-                    typ,
-                    label,
-                    points: pos.map(|v| {
-                        Vec2::new(
-                            (v.0 as f32) / (config.width as f32),
-                            (v.1 as f32) / (config.height as f32),
-                        )
-                    }),
-                });
-            }
-            v
-        });
-    if !armor.is_empty() {
-        info!("wrote 1 dataset entry: {}", armor.len());
-        writer
-            .lock()
-            .unwrap()
-            .write_entry(
-                config.height,
-                config.width,
-                &img.image
-                    .clone()
-                    .try_into_dynamic()
-                    .unwrap()
-                    .into_rgb8()
-                    .into_raw(),
-                &armor,
-            )
-            .unwrap();
-    }
+    let mut rr = armor_r.lock().unwrap();
+    armor_screen.drain().for_each(|(_, n)| {
+        for (typ, label, color, pos) in n {
+            rr.push(ArmorEntry {
+                color,
+                typ,
+                label,
+                points: pos.map(|v| {
+                    Vec2::new(
+                        (v.0 as f32) / (config.width as f32),
+                        (v.1 as f32) / (config.height as f32),
+                    )
+                }),
+            });
+        }
+    });
 }

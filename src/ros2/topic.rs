@@ -23,7 +23,7 @@ impl<T: RosTopic> TopicPublisher<T> {
         TopicPublisher { sender }
     }
 
-    pub fn publish(&mut self, message: T::T) {
+    pub fn publish(&self, message: T::T) {
         let mut sender = self.sender.clone();
         AsyncComputeTaskPool::get()
             .spawn(async move {

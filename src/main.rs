@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+mod capture;
 mod dataset;
 mod handler;
 mod robomaster;

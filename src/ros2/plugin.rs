@@ -1,5 +1,6 @@
+use crate::capture::driver::CaptureConfig;
 use crate::robomaster::prelude::{PowerRune, RuneIndex};
-use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
+use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
 use crate::{Controlled, InfantryGimbal, InfantryLaunchOffset, arc_mutex};
 use bevy::prelude::*;
@@ -108,11 +109,11 @@ fn capture_rune(
     targets: Query<(&GlobalTransform, &RuneIndex, &Name)>,
 
     clock: ResMut<RoboMasterClock>,
-    mut tf_publisher: ResMut<TopicPublisher<GlobalTransformTopic>>,
-    mut gimbal_pose_pub: ResMut<TopicPublisher<GimbalPoseTopic>>,
-    mut odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
-    mut muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
-    mut camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
+    tf_publisher: ResMut<TopicPublisher<GlobalTransformTopic>>,
+    gimbal_pose_pub: ResMut<TopicPublisher<GimbalPoseTopic>>,
+    odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
+    muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
+    camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
 ) {
     let cam_transform = camera.into_inner();
     let gimbal = gimbal.into_inner();
@@ -219,14 +220,14 @@ impl Plugin for ROS2Plugin {
                     width: 1440,
                     height: 1080,
                     texture_format: TextureFormat::bevy_default(),
-                    fov_y: PI / 180.0 * 45.0,
-                    publish_compressed: false,
                 },
                 context: RosCaptureContext {
                     clock,
                     camera_info,
                     image_raw,
                     image_compressed,
+                    fov_y: PI / 180.0 * 45.0,
+                    publish_compressed: false,
                 },
             })
             .add_systems(Last, cleanup_ros2_system)
