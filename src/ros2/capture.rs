@@ -37,11 +37,22 @@ pub struct CaptureConfig {
     pub publish_compressed: bool,
 }
 
+type ToSnapshot = Box<dyn CaptureHandler>;
+type DynSnapshot = Box<dyn Snapshot>;
+#[derive(Resource, Deref, DerefMut)]
+pub struct Ros2CaptureHandler(pub ToSnapshot);
+
 #[derive(Resource)]
 struct ImageCopier {
     src_image: Handle<Image>,
     extent: Extent3d,
-    queue: Mutex<VecDeque<(Buffer, r2r::builtin_interfaces::msg::Time)>>,
+    queue: Mutex<
+        VecDeque<(
+            Buffer,
+            r2r::builtin_interfaces::msg::Time,
+            Option<DynSnapshot>,
+        )>,
+    >,
 }
 
 impl ImageCopier {
@@ -65,6 +76,27 @@ impl ImageCopier {
     }
 }
 
+pub trait Snapshot: Send + Sync + 'static {
+    fn captured(&mut self, image: &[u8]);
+}
+
+pub trait CaptureHandler: Send + Sync + 'static {
+    fn capturing(&self, world: &World) -> Option<Box<dyn Snapshot>>;
+}
+
+struct TestSnapshot;
+impl Snapshot for TestSnapshot {
+    fn captured(&mut self, _image: &[u8]) {}
+}
+
+struct Behaviour;
+
+impl CaptureHandler for Behaviour {
+    fn capturing(&self, world: &World) -> Option<Box<dyn Snapshot>> {
+        todo!()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash, RenderLabel)]
 struct ImageCopy;
 
@@ -81,6 +113,7 @@ impl render_graph::Node for ImageCopyDriver {
         let image_copier = world.resource::<ImageCopier>();
         let gpu_images = world.get_resource::<RenderAssets<GpuImage>>().unwrap();
         let ros_ctx = world.get_resource::<RosCaptureContext>().unwrap();
+        let hdr = world.get_resource::<Ros2CaptureHandler>();
 
         let src_image = gpu_images.get(&image_copier.src_image).unwrap();
 
@@ -90,6 +123,7 @@ impl render_graph::Node for ImageCopyDriver {
             (src_image.size.width as usize / block_dimensions.0 as usize) * block_size as usize,
         );
 
+        let snapshot = hdr.map(|hdr| hdr.capturing(world)).flatten();
         let buffer = image_copier.create_buffer(render_context.render_device());
 
         render_context.command_encoder().copy_texture_to_buffer(
@@ -111,6 +145,7 @@ impl render_graph::Node for ImageCopyDriver {
         image_copier.queue.lock().unwrap().push_back((
             buffer,
             Clock::to_builtin_time(&ros_ctx.clock.lock().unwrap().get_now().unwrap()),
+            snapshot,
         ));
         Ok(())
     }
@@ -128,7 +163,7 @@ fn receive_image_from_buffer(
     let (width, height, texture_format) = (config.width, config.height, config.texture_format);
 
     let mut guard = image_copier.queue.lock().unwrap();
-    let all = guard.drain(..).fold(vec![], |mut all, (buffer, time)| {
+    let all = guard.drain(..).fold(vec![], |mut all, (buffer, time, tt)| {
         let (s, r) = futures::channel::oneshot::channel();
         let buffer_slice = buffer.slice(..);
         let buffer = buffer.clone();
@@ -141,14 +176,14 @@ fn receive_image_from_buffer(
             buffer.unmap();
             s.send(dat).expect("Failed to send map update")
         });
-        all.push((time, r));
+        all.push((time, r, tt));
         all
     });
     drop(guard);
 
     // what fuck
     let config = unsafe { escape_may_ub(config.into_inner()) };
-    for (time, r) in all.into_iter() {
+    for (time, r, snapshot) in all.into_iter() {
         let mut ctx = ctx.clone();
         AsyncComputeTaskPool::get()
             .spawn(async move {
@@ -169,6 +204,9 @@ fn receive_image_from_buffer(
                     bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
                 };
                 let image_data = image_data.as_slice();
+                if let Some(mut snapshot) = snapshot {
+                    snapshot.captured(image_data);
+                }
                 let optical_frame_hdr = Header {
                     stamp: time.clone(),
                     frame_id: "camera_optical_frame".to_string(),
