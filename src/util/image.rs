@@ -1,7 +1,7 @@
 use r2r::sensor_msgs::msg::CompressedImage;
 use r2r::std_msgs::msg::Header;
 
-pub fn compress_image(header: Header, width: u32, height: u32, data: Vec<u8>) -> CompressedImage {
+pub fn compress_image(header: Header, width: u32, height: u32, data: &[u8]) -> CompressedImage {
     use image::codecs::jpeg::JpegEncoder;
     use image::{ImageBuffer, Rgb};
     use std::io::Cursor;

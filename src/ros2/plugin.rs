@@ -1,7 +1,7 @@
 use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{CaptureConfig, RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
-use crate::{Controlled, InfantryGimbal, InfantryLaunchOffset, arc_mutex, publisher};
+use crate::{Controlled, InfantryGimbal, InfantryLaunchOffset, arc_mutex};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
@@ -108,11 +108,11 @@ fn capture_rune(
     targets: Query<(&GlobalTransform, &RuneIndex, &Name)>,
 
     clock: ResMut<RoboMasterClock>,
-    tf_publisher: ResMut<TopicPublisher<GlobalTransformTopic>>,
-    gimbal_pose_pub: ResMut<TopicPublisher<GimbalPoseTopic>>,
-    odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
-    muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
-    camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
+    mut tf_publisher: ResMut<TopicPublisher<GlobalTransformTopic>>,
+    mut gimbal_pose_pub: ResMut<TopicPublisher<GimbalPoseTopic>>,
+    mut odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
+    mut muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
+    mut camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
 ) {
     let cam_transform = camera.into_inner();
     let gimbal = gimbal.into_inner();
@@ -168,7 +168,7 @@ fn capture_rune(
         transforms: transform_stamped,
     });
 }
-
+fn process_subscription(gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>) {}
 fn cleanup_ros2_system(
     mut exit: MessageReader<AppExit>,
     stop_signal: Res<StopSignal>,
@@ -195,10 +195,20 @@ impl Plugin for ROS2Plugin {
         let signal_arc = Arc::new(AtomicBool::new(false));
 
         register_pub(signal_arc.clone(), app, &mut node);
+        register_sub(signal_arc.clone(), app, &mut node);
 
-        let camera_info = Arc::new(publisher!(signal_arc, node, CameraInfoTopic));
-        let image_raw = Arc::new(publisher!(signal_arc, node, ImageRawTopic));
-        let image_compressed = Arc::new(publisher!(signal_arc, node, ImageCompressedTopic));
+        let camera_info = app
+            .world_mut()
+            .remove_resource::<TopicPublisher<CameraInfoTopic>>()
+            .unwrap();
+        let image_raw = app
+            .world_mut()
+            .remove_resource::<TopicPublisher<ImageRawTopic>>()
+            .unwrap();
+        let image_compressed = app
+            .world_mut()
+            .remove_resource::<TopicPublisher<ImageCompressedTopic>>()
+            .unwrap();
 
         let clock = arc_mutex!(Clock::create(SystemTime).unwrap());
 
@@ -210,6 +220,7 @@ impl Plugin for ROS2Plugin {
                     height: 1080,
                     texture_format: TextureFormat::bevy_default(),
                     fov_y: PI / 180.0 * 45.0,
+                    publish_compressed: false,
                 },
                 context: RosCaptureContext {
                     clock,
@@ -222,7 +233,7 @@ impl Plugin for ROS2Plugin {
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {
-                    node.spin_once(Duration::from_millis(1000));
+                    node.spin_once(Duration::from_millis(10));
                 }
             }))));
     }
