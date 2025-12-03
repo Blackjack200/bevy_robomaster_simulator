@@ -187,7 +187,9 @@ fn insert_corner_data(
         let Some(corners) = extract_corners(ass.get(mesh_handle).unwrap()) else {
             continue;
         };
-        commands.entity(armor_entity).insert(CornerData(corners));
+        commands
+            .entity(armor_entity)
+            .insert((CornerData(corners), Visibility::Hidden));
     }
 }
 
@@ -242,15 +244,7 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 fn capture(
-    armor_query: Extract<
-        Query<(
-            Entity,
-            &GlobalTransform,
-            &Armor,
-            &CornerData,
-            &ViewVisibility,
-        )>,
-    >,
+    armor_query: Extract<Query<(Entity, &GlobalTransform, &Armor, &CornerData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
@@ -260,13 +254,7 @@ fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (armor_entity, global_transform, &Armor(team, typ, label), corners, view_visibility) in
-        armor_query.iter()
-    {
-        if !view_visibility.get() {
-            continue;
-        }
-
+    for (armor_entity, global_transform, &Armor(team, typ, label), corners) in armor_query.iter() {
         // 屏幕投影
         let corners: Vec<_> = corners
             .into_iter()

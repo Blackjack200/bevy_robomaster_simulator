@@ -422,11 +422,11 @@ fn setup_vehicle(
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_L_BLUE") && team == Team::Red
                     {
-                        insert_all_child(&mut commands, e, &children, || Visibility::Hidden);
+                        commands.entity(e).despawn();
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_L_RED") && team == Team::Blue
                     {
-                        insert_all_child(&mut commands, e, &children, || Visibility::Hidden);
+                        commands.entity(e).despawn();
                     }
                     for (ee, n, &ChildOf(r)) in node_query {
                         if r == e {
