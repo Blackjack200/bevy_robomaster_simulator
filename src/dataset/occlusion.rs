@@ -18,7 +18,7 @@ impl Default for OcclusionConfig {
     fn default() -> Self {
         Self {
             samples_per_vertex: 8,
-            visibility_threshold: 0.5,
+            visibility_threshold: 0.75,
         }
     }
 }
@@ -96,7 +96,7 @@ impl<'w, 's> Occlusion<'w, 's> {
                 return OcclusionType::VehicleBody;
             }
 
-            let is_occluded = hit.distance > 0.00001 && hit.distance < total_dist - f32::EPSILON;
+            let is_occluded = hit.distance < total_dist - f32::EPSILON;
 
             if is_occluded {
                 println!(
@@ -155,6 +155,8 @@ impl<'w, 's> Occlusion<'w, 's> {
         }
 
         let visibility_ratio = visible_samples as f32 / total_samples as f32;
+
+        println!("pct={}", visibility_ratio);
 
         visibility_ratio >= self.config.visibility_threshold
     }
