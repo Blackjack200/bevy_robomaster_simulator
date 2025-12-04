@@ -10,7 +10,6 @@ use bevy::prelude::*;
 use bevy::render::sync_world::SyncToRenderWorld;
 use bevy::render::{Extract, RenderApp, RenderSystems};
 use std::collections::HashMap;
-use std::mem::swap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]
@@ -111,67 +110,34 @@ pub fn world_to_screen(
 type CornerTuple = (Vec3, (u32, u32));
 
 fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
-    // 转为 Vec2 方便做浮点运算
-    let n: [(CornerTuple, Vec2); 4] = points.map(|v| (v, Vec2::new(v.1.0 as f32, v.1.1 as f32)));
+    let points_with_vec: Vec<(CornerTuple, Vec2)> = points
+        .iter()
+        .map(|&v| (v, Vec2::new(v.1.0 as f32, v.1.1 as f32)))
+        .collect();
 
-    let mut axis = 0.0;
-    let mut diagonal = (0, 0);
+    let center = points_with_vec
+        .iter()
+        .map(|(_, v)| *v)
+        .fold(Vec2::ZERO, |acc, v| acc + v)
+        / 4.0;
 
-    // 找出距离最大的两个点（矩形对角线）
-    // points.cartesian_product().map().max() 总是对角线
-    for i in 0..4 {
-        for j in i + 1..4 {
-            let d = (n[i].1 - n[j].1).length();
-            if d > axis {
-                axis = d;
-                diagonal = (i, j);
-            }
-        }
-    }
+    let mut sorted: Vec<(CornerTuple, Vec2, f32, bool)> = points_with_vec
+        .into_iter()
+        .map(|(tuple, vec)| {
+            let dir = (vec - center).normalize();
+            let angle = dir.dot(Vec2::X).acos();
+            (tuple, vec, angle, dir.y > 0.0)
+        })
+        .collect();
 
-    // 第一根对角线的两个点
-    let mut p0 = n[diagonal.0];
-    let mut p2 = n[diagonal.1];
-    if p0.1.x > p2.1.x {
-        // 左上角总是 x 较小的那个
-        swap(&mut p0, &mut p2);
-    }
-    let [mut p1, mut p3]: [(CornerTuple, Vec2); 2] = (0..4)
-        .filter(|&i| i != diagonal.0 && i != diagonal.1)
-        .map(|i| n[i])
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-    if p1.1.x > p3.1.x {
-        // 左上角总是 x 较小的那个
-        swap(&mut p1, &mut p3);
-    }
-    /*
-     * 记四个点为
-     * | p0 p3 |
-     * | p1 p2 |
-     * <--x 减小
-     * 现在保证：
-     * - 左上列: p0.x <= p2.x
-     * - 左下列: p1.x <= p3.x
-     * 但是可能上下颠倒
-     */
+    // 输入: [-1.0, 2.0,  1.0, -2.0]
+    // 输出: [ 2.0, 1.0, -1.0, -2.0]
+    sorted.sort_by(|a, b| b.3.cmp(&a.3).then(a.2.partial_cmp(&b.2).unwrap()));
 
-    // 同样的，根据 y 坐标调整顺序，让顺时针/逆时针正确
-    if p0.1.y > p1.1.y {
-        swap(&mut p0, &mut p1);
-    }
-    if p3.1.y > p2.1.y {
-        swap(&mut p3, &mut p2);
-    }
-
-    [
-        p0.0, // 左上
-        p1.0, // 左下
-        p2.0, // 右下
-        p3.0, // 右上
-    ]
+    // 4. 从左上角开始逆时针排列（或顺时针，取决于你的坐标系）
+    [sorted[1].0, sorted[3].0, sorted[2].0, sorted[0].0]
 }
+
 type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 
 #[derive(Component, Deref, DerefMut, Clone)]
@@ -268,7 +234,7 @@ fn capture(
             continue; // 四角没有完全在屏幕上
         }
         let corners_ordered = sort_screen_points([corners[0], corners[1], corners[2], corners[3]]);
-        if !occlusion.visible(camera_pos, armor_entity, &corners_ordered) {
+        if !occlusion.visible(camera_pos, armor_entity, &corners_ordered, 0.00525, 0.04625) {
             continue;
         }
         armor_screen.entry(team).or_insert(default()).push((

@@ -76,6 +76,7 @@ impl PowerRune {
             RuneAction::StartActivating => {
                 // 重新创建旋转控制器确保参数完全重置
                 self.rotation.clear_variable();
+                self.r.set(Activation::Activated, appearance);
                 // 大机关激活时使用变量旋转，小机关使用固定速度
                 if self.mode == RuneMode::Large {
                     self.rotation.set_variable(rng);
