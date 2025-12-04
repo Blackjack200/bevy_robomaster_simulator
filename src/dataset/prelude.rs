@@ -121,21 +121,19 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
         .fold(Vec2::ZERO, |acc, v| acc + v)
         / 4.0;
 
-    let mut sorted: Vec<(CornerTuple, Vec2, f32, bool)> = points_with_vec
+    let mut sorted: Vec<(CornerTuple, Vec2, f32)> = points_with_vec
         .into_iter()
         .map(|(tuple, vec)| {
             let dir = (vec - center).normalize();
-            let angle = dir.dot(Vec2::X).acos();
-            (tuple, vec, angle, dir.y > 0.0)
+            let angle = dir.angle_to(Vec2::X).to_degrees();
+            (tuple, vec, angle)
         })
         .collect();
 
-    // 输入: [-1.0, 2.0,  1.0, -2.0]
-    // 输出: [ 2.0, 1.0, -1.0, -2.0]
-    sorted.sort_by(|a, b| b.3.cmp(&a.3).then(a.2.partial_cmp(&b.2).unwrap()));
+    // 角度 descending 排序
+    sorted.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
 
-    // 4. 从左上角开始逆时针排列（或顺时针，取决于你的坐标系）
-    [sorted[1].0, sorted[3].0, sorted[2].0, sorted[0].0]
+    [sorted[0].0, sorted[3].0, sorted[2].0, sorted[1].0]
 }
 
 type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
