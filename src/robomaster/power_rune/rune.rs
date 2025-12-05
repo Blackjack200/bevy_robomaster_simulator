@@ -188,7 +188,7 @@ fn rune_activation_tick(
 fn rune_rotation_system(time: Res<Time>, mut runes: Query<(&mut Transform, &mut PowerRune)>) {
     let dt = time.delta_secs();
     for (mut transform, mut rune) in &mut runes {
-        let mode = rune.mode.clone();
+        let mode = rune.mode;
         // 只有在激活状态下大机关才使用变量旋转
         let speed = rune.rotation.current_speed(mode, dt);
         let angle = speed * dt;
