@@ -1,0 +1,285 @@
+use crate::robomaster::prelude::{ArmorLabel, ArmorType, MarkerData, Team, extract_markers};
+use crate::util::bevy::insert_all_child;
+use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
+use bevy::app::App;
+use bevy::ecs::system::SystemParam;
+use bevy::ecs::system::lifetimeless::Read;
+use bevy::mesh::VertexAttributeValues;
+use bevy::prelude::{
+    Added, Assets, ChildOf, Children, Commands, Component, Deref, DerefMut, Entity, Mesh, Mesh3d,
+    Name, Plugin, Query, Res, Update, Vec3, Visibility, With, error, info,
+};
+
+#[derive(Component)]
+pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
+
+#[derive(Component, Clone, Debug, Deref, DerefMut)]
+pub struct VertexData(pub Vec<Vec<Vec3>>);
+
+#[derive(Component, Clone)]
+pub struct Armor(pub Team, pub ArmorType, pub ArmorLabel);
+
+/// 装甲组件类型枚举
+#[derive(Debug)]
+enum ArmorComponentType {
+    Root,            // 根实体
+    Character,       // 字符标识
+    LightBar,        // 灯条
+    Marker,          // 标记点
+    Vertex(String),  // 顶点数据
+    Collider,        // 碰撞体（基础装甲）
+    Unknown(String), // 未知类型
+}
+
+impl ArmorComponentType {
+    fn from_name_parts(parts: Vec<&str>) -> Self {
+        if parts.is_empty() {
+            return Self::Collider;
+        }
+        match parts[0] {
+            "ROOT" => Self::Root,
+            "C" => Self::Character,
+            "L" => Self::LightBar,
+            "MARKER" => Self::Marker,
+            "VERTEX" => Self::Vertex(parts[1].parse().unwrap()),
+            other => Self::Unknown(other.to_string()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ArmorIdentifier<'a> {
+    identifier: &'a str,
+    component_type: ArmorComponentType,
+}
+
+impl<'a> ArmorIdentifier<'a> {
+    fn parse(name: &'a str) -> Option<Self> {
+        let name = &name[..name.rfind('.').unwrap_or(name.len())];
+        let pos = name.find("ARMOR")?;
+        let identifier = &name[..pos];
+        let armor_parts = &name[pos..];
+        let mut parts: Vec<&str> = armor_parts.split('_').collect();
+        if parts.first() != Some(&"ARMOR") {
+            return None;
+        }
+        parts.remove(0);
+        let component_type = ArmorComponentType::from_name_parts(parts);
+        Some(Self {
+            identifier,
+            component_type,
+        })
+    }
+}
+
+#[derive(SystemParam)]
+pub struct ArmorConstructor<'w, 's> {
+    commands: Commands<'w, 's>,
+    children: Query<'w, 's, Read<Children>>,
+    child_of: Query<'w, 's, Read<ChildOf>>,
+    name: Query<'w, 's, Read<Name>, With<ChildOf>>,
+    mesh_query: Query<'w, 's, Read<Mesh3d>>,
+    mesh_assets: Res<'w, Assets<Mesh>>,
+}
+
+impl ArmorConstructor<'_, '_> {
+    fn get_mesh(&self, entity: Entity) -> Option<&Mesh> {
+        let mesh_handle = self.mesh_query.get(entity).ok()?;
+        self.mesh_assets.get(mesh_handle)
+    }
+
+    fn process_marker(
+        &mut self,
+        entity: Entity,
+        info: &ArmorIdentifier,
+        armor_data: &ScanArmor,
+    ) -> Option<MarkerData> {
+        let mesh = self.get_mesh(entity)?;
+        let vertices = extract_markers(mesh)?;
+
+        info!(
+            "Armor {:?}_{:?}_{:?}@'{}': Added marker with {} points",
+            armor_data.0,
+            armor_data.1,
+            armor_data.2,
+            info.identifier,
+            vertices.len()
+        );
+
+        self.commands
+            .entity(entity)
+            .insert((MarkerData(vertices), Visibility::Hidden));
+        Some(MarkerData(vertices))
+    }
+
+    fn process_vertex(
+        &mut self,
+        entity: Entity,
+        info: &ArmorIdentifier,
+        armor_data: &ScanArmor,
+    ) -> Option<Vec<Vec3>> {
+        let mesh = self.get_mesh(entity)?;
+
+        let vertices = extract_vertices(mesh)?;
+
+        info!(
+            "Armor {:?}_{:?}_{:?}@'{}': Extracted {} vertices",
+            armor_data.0,
+            armor_data.1,
+            armor_data.2,
+            info.identifier,
+            vertices.len()
+        );
+
+        Some(vertices)
+    }
+
+    fn process_collider(&mut self, entity: Entity) {
+        self.commands
+            .entity(entity)
+            .insert(ColliderConstructorHierarchy::new(
+                ColliderConstructor::TrimeshFromMeshWithConfig(
+                    TrimeshFlags::MERGE_DUPLICATE_VERTICES,
+                ),
+            ));
+    }
+
+    fn process_armor_root(&mut self, root: Entity, armor_data: &ScanArmor) {
+        // 为所有子节点添加 Armor 组件
+        let children = self.children;
+        insert_all_child(&mut self.commands, root, &children, || {
+            Armor(armor_data.0, armor_data.1, armor_data.2)
+        });
+
+        let name = self.name;
+        let mut vertices = vec![];
+        let mut marker = None;
+        children
+            .iter_descendants(root)
+            .filter_map(|v| name.get(v).ok().map(|name| (name, v)))
+            .for_each(|(name, armor_elem)| {
+                let Some(info) = ArmorIdentifier::parse(name) else {
+                    info!("Failed to parse armor name: {}", name);
+                    return;
+                };
+                // 根据组件类型执行不同的处理
+                match info.component_type {
+                    ArmorComponentType::Character
+                    | ArmorComponentType::LightBar
+                    | ArmorComponentType::Root => {
+                        // 忽略这些类型
+                    }
+                    ArmorComponentType::Marker => {
+                        let Some(v) = self.process_marker(armor_elem, &info, armor_data) else {
+                            return;
+                        };
+                        marker = Some(v);
+                    }
+                    ArmorComponentType::Vertex(..) => {
+                        let Some(v) = self.process_vertex(armor_elem, &info, armor_data) else {
+                            return;
+                        };
+                        vertices.push((armor_elem, v));
+                    }
+                    ArmorComponentType::Collider => {
+                        self.process_collider(armor_elem);
+                    }
+                    ArmorComponentType::Unknown(ref type_name) => {
+                        info!("Unknown armor component type: {} in {}", type_name, name);
+                    }
+                }
+            });
+        let Some(marker) = marker else {
+            error!("{} has no marker data", root);
+            return;
+        };
+        let m = vertices.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+        for (e, _) in vertices {
+            self.commands.entity(e).insert((
+                marker.clone(),
+                VertexData(m.clone()),
+                Visibility::Hidden,
+            ));
+        }
+    }
+}
+
+/// 从Mesh中提取所有顶点
+pub fn extract_vertices(mesh: &Mesh) -> Option<Vec<Vec3>> {
+    mesh.attributes()
+        .find_map(|(_, values)| {
+            if let VertexAttributeValues::Float32x3(vec) = values {
+                Some(vec.iter().map(|&p| Vec3::from(p)).collect())
+            } else {
+                None
+            }
+        })
+        .filter(|points: &Vec<Vec3>| !points.is_empty())
+}
+
+// TODO
+macro_rules! root {
+    (
+        super $child_of:expr => $children:expr;
+        name $name:expr;
+        $root:ident {
+            $($expr:tt)*
+        }
+    ) => {{
+        let _child_of = $child_of;
+        let _children = $children;
+        let _name = $name;
+        root!(@internal $root, _name, _child_of, _children, { $($expr)* });
+    }};
+    (@internal $root:ident, $name:expr, $child_of:ident, $children:ident, {
+        match {
+            $($label:literal => {
+                $($tt:tt)*
+            });*$(;)?
+        }
+    }) => {{
+        if let Ok(_children) = $children.get($root) {
+            for $root in _children {
+                let $root = *$root;
+                let Some(name) = $name.get(root_entity).ok() else { continue; };
+                let name = name.as_str();
+                 if false {}
+                 $(
+                  else if name == $label {
+                    $($tt)*
+                  }
+                 )*
+            }
+        }
+    }};
+}
+
+fn insert(
+    root: Query<(Entity, Read<ScanArmor>), Added<ScanArmor>>,
+    mut constructor: ArmorConstructor,
+) {
+    for (root_entity, armor_data) in root.iter() {
+        let children = constructor.children;
+        let name = constructor.name;
+        let armor_root: Vec<_> = children
+            .iter_descendants(root_entity)
+            .filter(|child| {
+                name.get(*child)
+                    .is_ok_and(|name| name.contains("ARMOR_ROOT"))
+            })
+            .collect();
+        // 处理每个装甲子节点
+        for root in armor_root {
+            constructor.process_armor_root(root, armor_data);
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct ArmorConstructorPlugin;
+
+impl Plugin for ArmorConstructorPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, insert);
+    }
+}

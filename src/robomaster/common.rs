@@ -6,6 +6,16 @@ pub enum Team {
     Blue,
 }
 
+impl Team {
+    pub fn from(name: &str) -> Option<Self> {
+        match name.to_lowercase().as_str() {
+            "red" => Some(Team::Red),
+            "blue" => Some(Team::Blue),
+            _ => None,
+        }
+    }
+}
+
 pub type RobotConfig = (ArmorType, ArmorLabel, usize);
 
 pub const HERO_ROBOT_CONFIG: RobotConfig = (ArmorType::Large, ArmorLabel::HeroOne, 4);

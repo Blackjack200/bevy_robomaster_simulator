@@ -1,8 +1,5 @@
-use crate::Armor;
 use crate::robomaster::outpost::update::{Outpost, OutpostRotator};
-use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
-use crate::util::bevy::insert_all_child;
-use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
+use crate::robomaster::prelude::{ArmorLabel, ArmorType, ScanArmor, Team};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::{Added, Children, Commands, Component, Entity, Name, Query, Update};
 
@@ -21,7 +18,10 @@ fn setup_outpost(
     mut param: OutpostParam,
 ) {
     for (root, &OutpostRoot(team)) in query {
-        param.commands.entity(root).insert(Outpost::new(team));
+        param.commands.entity(root).insert((
+            Outpost::new(team),
+            ScanArmor(team, ArmorType::Small, ArmorLabel::OutpostZeo),
+        ));
         let clockwise = team == Team::Red;
         param.children.iter_descendants(root).for_each(|e| {
             let Ok(name) = param.names.get(e) else {
@@ -33,24 +33,6 @@ fn setup_outpost(
                     .entity(e)
                     .insert(OutpostRotator::new(clockwise));
                 return;
-            }
-            if name.ends_with("_P") {
-                insert_all_child(&mut param.commands, e, &param.children, || {
-                    Armor(team, ArmorType::Small, ArmorLabel::OutpostZeo)
-                });
-                return;
-            }
-            if name.contains("_ARMOR")
-                && !name.contains("ROOT")
-                && !name.contains("BASE")
-                && !name.ends_with("_P")
-            {
-                param
-                    .commands
-                    .entity(e)
-                    .insert(ColliderConstructorHierarchy::new(
-                        ColliderConstructor::TrimeshFromMeshWithConfig(TrimeshFlags::all()),
-                    ));
             }
         })
     }

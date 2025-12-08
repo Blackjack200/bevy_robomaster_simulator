@@ -9,12 +9,11 @@ mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
 use crate::robomaster::prelude::{
-    ArmorLabel, ArmorType, INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, Projectile,
-    RoboMasterPlugins, RobotConfig, Team,
+    INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, Projectile, RoboMasterPlugins, RobotConfig,
+    ScanArmor, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::ros2::plugin::ROS2Plugin;
-use crate::util::bevy::insert_all_child;
 use crate::{
     handler::{on_activate, on_hit},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
@@ -195,7 +194,7 @@ struct PreciousCollision(
 );
 
 #[derive(Component)]
-struct Ground;
+struct ScanOutpost;
 
 fn setup(
     mut commands: Commands,
@@ -247,7 +246,12 @@ fn setup(
             "GROUND_DENSE".to_string(),
             (trimesh(), layer_env, Visibility::Visible),
         )])),
-        Ground,
+    ));
+    commands.spawn((
+        RigidBody::Static,
+        SceneRoot(asset_server.load("OUTPOST.glb#Scene0")),
+        Transform::IDENTITY,
+        ScanOutpost,
     ));
 
     let mut power_rune_col = HashMap::from([(
@@ -313,14 +317,12 @@ fn setup(
     ));
 }
 
-#[derive(Component, Clone)]
-pub struct Armor(Team, ArmorType, ArmorLabel);
 fn setup_ground(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     name: Query<&Name>,
-    ground: Single<Entity, With<Ground>>,
+    ground: Single<Entity, With<ScanOutpost>>,
 ) {
     let root = events.entity;
     if ground.into_inner() != root {
@@ -403,22 +405,15 @@ fn setup_vehicle(
         let mut ent = commands.entity(node);
         match name.as_str() {
             "BASE" => {
-                ent.insert(InfantryChassis::default());
+                ent.insert((
+                    InfantryChassis::default(),
+                    ScanArmor(team, config.0, config.1),
+                ));
                 let mut stack = VecDeque::from([(node, name)]);
                 let mut set = HashSet::new();
                 while let Some((e, name)) = stack.pop_front() {
                     if !set.insert(e) {
                         continue;
-                    }
-                    if name.starts_with("ARMOR_") && name.ends_with("_P") {
-                        insert_all_child(&mut commands, e, &children, || {
-                            Armor(team, config.0, config.1)
-                        });
-                        commands.entity(e).insert(ColliderConstructorHierarchy::new(
-                            ColliderConstructor::TrimeshFromMeshWithConfig(
-                                TrimeshFlags::MERGE_DUPLICATE_VERTICES,
-                            ),
-                        ));
                     }
                     if name.starts_with("ARMOR_") && name.ends_with("_L_BLUE") && team == Team::Red
                     {

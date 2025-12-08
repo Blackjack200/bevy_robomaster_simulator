@@ -1,13 +1,10 @@
-use crate::Armor;
 use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
-use crate::dataset::occlusion::{Occlusion, OcclusionConfig};
+use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
-use crate::robomaster::prelude::{ArmorLabel, ArmorType, Team};
+use crate::robomaster::prelude::{Armor, ArmorLabel, ArmorType, MarkerData, Team, VertexData};
 use crate::ros2::capture::CaptureCamera;
 use bevy::ecs::world::DeferredWorld;
-use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
-use bevy::render::sync_world::SyncToRenderWorld;
 use bevy::render::{Extract, RenderApp, RenderSystems};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -26,8 +23,6 @@ struct Cooldown(Mutex<Timer>);
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(OcclusionConfig::default())
-            .add_systems(Update, insert_corner_data);
         app.sub_app_mut(RenderApp)
             .insert_resource(DatasetHandle(Arc::new(Mutex::new(
                 DatasetWriter::new("dataset").unwrap(),
@@ -57,25 +52,6 @@ impl Plugin for DatasetPlugin {
                     .before(RenderSystems::Render),
             );
     }
-}
-
-pub fn extract_corners(mesh: &Mesh) -> Option<[Vec3; 4]> {
-    let mut points: Vec<Vec3> = Vec::new();
-    for (_attr, values) in mesh.attributes() {
-        if let VertexAttributeValues::Float32x3(vec) = values {
-            points.extend(vec.iter().map(|&p| Vec3::from(p)));
-            break;
-        }
-    }
-
-    if points.is_empty() {
-        return None;
-    }
-
-    if points.len() != 4 {
-        panic!("Expected 4 points but got {}", points.len());
-    }
-    Some(points.as_slice().try_into().unwrap())
 }
 
 pub fn world_to_screen(
@@ -138,25 +114,6 @@ fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
 
 type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 
-#[derive(Component, Deref, DerefMut, Clone)]
-#[require(SyncToRenderWorld)]
-pub struct CornerData(pub [Vec3; 4]);
-
-fn insert_corner_data(
-    mut commands: Commands,
-    armor_query: Query<(Entity, &Mesh3d), (With<Armor>, Without<CornerData>)>,
-    ass: Res<Assets<Mesh>>,
-) {
-    for (armor_entity, mesh_handle) in armor_query {
-        let Some(corners) = extract_corners(ass.get(mesh_handle).unwrap()) else {
-            continue;
-        };
-        commands
-            .entity(armor_entity)
-            .insert((CornerData(corners), Visibility::Hidden));
-    }
-}
-
 #[derive(Default)]
 pub struct DatasetSnapshotCreator {}
 #[derive(Default, Resource, Deref, DerefMut)]
@@ -208,7 +165,7 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 fn capture(
-    armor_query: Extract<Query<(Entity, &GlobalTransform, &Armor, &CornerData)>>,
+    vertex_data: Extract<Query<(Entity, &GlobalTransform, &Armor, &MarkerData, &VertexData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
@@ -218,23 +175,35 @@ fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (armor_entity, global_transform, &Armor(team, typ, label), corners) in armor_query.iter() {
-        // 屏幕投影
-        let corners: Vec<_> = corners
-            .into_iter()
-            .map(|corner| global_transform.transform_point(corner))
-            .filter_map(|corner| {
-                let pos = world_to_screen(corner, camera_global_transform, projection, &config)?;
-                Some((corner, pos))
-            })
-            .collect();
-        if corners.len() != 4 {
-            continue; // 四角没有完全在屏幕上
+    for (vertex_entity, global_transform, &Armor(team, typ, label), markers, vertices) in
+        vertex_data.iter()
+    {
+        let all_in_frustum = |unmapped: &[Vec3]| -> Option<Vec<(Vec3, (u32, u32))>> {
+            let mut mapped = Vec::with_capacity(unmapped.len());
+            for elem in unmapped {
+                let global = global_transform.transform_point(*elem);
+                let pos = world_to_screen(global, camera_global_transform, projection, &config)?;
+                mapped.push((global, pos))
+            }
+            Some(mapped)
+        };
+        let mut vert = Vec::with_capacity(vertices.len());
+        for vertices in &vertices.0 {
+            let Some(vertices) = all_in_frustum(vertices.as_slice()) else {
+                continue;
+            };
+            vert.push(vertices.into_iter().map(|v| v.0).collect());
         }
-        let corners_ordered = sort_screen_points([corners[0], corners[1], corners[2], corners[3]]);
-        if !occlusion.visible(camera_pos, armor_entity, &corners_ordered, 0.00525, 0.04625) {
+        if vert.len() != vertices.len() {
             continue;
         }
+        let Some(markers) = all_in_frustum(&markers.0) else {
+            continue;
+        };
+        if !occlusion.visible(camera_pos, vertex_entity, vert.as_slice()) {
+            continue;
+        }
+        let marker_ordered = sort_screen_points(markers.as_slice().try_into().unwrap());
         armor_screen.entry(team).or_insert(default()).push((
             typ,
             label,
@@ -242,7 +211,7 @@ fn capture(
                 Team::Red => ArmorColor::Red,
                 Team::Blue => ArmorColor::Blue,
             },
-            corners_ordered.map(|v| v.1),
+            marker_ordered.map(|v| v.1),
         ));
     }
     for (team, armor_screen) in armor_screen.iter() {

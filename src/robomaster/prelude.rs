@@ -14,6 +14,7 @@ pub struct RoboMasterPlugins;
 impl Plugin for RoboMasterPlugins {
     fn build(&self, app: &mut App) {
         app.add_plugins(StatefulAppearancePlugin)
+            .add_plugins(ArmorPlugins)
             .add_plugins(PowerRunePlugins)
             .add_plugins(OutpostPlugins);
     }
