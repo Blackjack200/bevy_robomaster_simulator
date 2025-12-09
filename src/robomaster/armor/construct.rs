@@ -1,5 +1,4 @@
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, MarkerData, Team, extract_markers};
-use crate::util::bevy::insert_all_child;
 use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
 use bevy::app::App;
 use bevy::ecs::system::SystemParam;
@@ -13,15 +12,15 @@ use bevy::prelude::{
 #[derive(Component)]
 pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
 
-#[derive(Component, Clone, Debug, Deref, DerefMut)]
-pub struct VertexData(pub Vec<Vec<Vec3>>);
+#[derive(Component, Clone, Debug)]
+pub struct VertexData(pub String, pub Vec<Vec3>);
 
 #[derive(Component, Clone)]
-pub struct Armor(pub Team, pub ArmorType, pub ArmorLabel);
+pub struct Armor(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
 
 /// 装甲组件类型枚举
-#[derive(Debug)]
-enum ArmorComponentType {
+#[derive(Clone, Debug)]
+pub enum ArmorComponentType {
     Root,            // 根实体
     Character,       // 字符标识
     LightBar,        // 灯条
@@ -47,17 +46,17 @@ impl ArmorComponentType {
     }
 }
 
-#[derive(Debug)]
-struct ArmorIdentifier<'a> {
-    identifier: &'a str,
-    component_type: ArmorComponentType,
+#[derive(Clone, Debug)]
+pub struct ArmorIdentifier {
+    pub identifier: String,
+    pub component_type: ArmorComponentType,
 }
 
-impl<'a> ArmorIdentifier<'a> {
-    fn parse(name: &'a str) -> Option<Self> {
+impl ArmorIdentifier {
+    fn parse(name: &str) -> Option<Self> {
         let name = &name[..name.rfind('.').unwrap_or(name.len())];
         let pos = name.find("ARMOR")?;
-        let identifier = &name[..pos];
+        let identifier = name[..pos].to_string();
         let armor_parts = &name[pos..];
         let mut parts: Vec<&str> = armor_parts.split('_').collect();
         if parts.first() != Some(&"ARMOR") {
@@ -80,6 +79,11 @@ pub struct ArmorConstructor<'w, 's> {
     name: Query<'w, 's, Read<Name>, With<ChildOf>>,
     mesh_query: Query<'w, 's, Read<Mesh3d>>,
     mesh_assets: Res<'w, Assets<Mesh>>,
+}
+#[derive(Component)]
+pub struct ArmorRoot {
+    pub marker: Entity,
+    pub vertices: Vec<Entity>,
 }
 
 impl ArmorConstructor<'_, '_> {
@@ -145,11 +149,20 @@ impl ArmorConstructor<'_, '_> {
     }
 
     fn process_armor_root(&mut self, root: Entity, armor_data: &ScanArmor) {
+        let name = self.name.get(root).unwrap();
+        let Some(info) = ArmorIdentifier::parse(name) else {
+            info!("Failed to parse armor name: {}", name);
+            return;
+        };
+        self.commands.entity(root).insert(Armor(
+            info.clone(),
+            armor_data.0,
+            armor_data.1,
+            armor_data.2,
+        ));
+
         // 为所有子节点添加 Armor 组件
         let children = self.children;
-        insert_all_child(&mut self.commands, root, &children, || {
-            Armor(armor_data.0, armor_data.1, armor_data.2)
-        });
 
         let name = self.name;
         let mut vertices = vec![];
@@ -162,6 +175,12 @@ impl ArmorConstructor<'_, '_> {
                     info!("Failed to parse armor name: {}", name);
                     return;
                 };
+                self.commands.entity(armor_elem).insert(Armor(
+                    info.clone(),
+                    armor_data.0,
+                    armor_data.1,
+                    armor_data.2,
+                ));
                 // 根据组件类型执行不同的处理
                 match info.component_type {
                     ArmorComponentType::Character
@@ -170,16 +189,19 @@ impl ArmorConstructor<'_, '_> {
                         // 忽略这些类型
                     }
                     ArmorComponentType::Marker => {
-                        let Some(v) = self.process_marker(armor_elem, &info, armor_data) else {
+                        let Some(_) = self.process_marker(armor_elem, &info, armor_data) else {
                             return;
                         };
-                        marker = Some(v);
+                        marker = Some(armor_elem);
                     }
-                    ArmorComponentType::Vertex(..) => {
+                    ArmorComponentType::Vertex(ref side) => {
                         let Some(v) = self.process_vertex(armor_elem, &info, armor_data) else {
                             return;
                         };
-                        vertices.push((armor_elem, v));
+                        self.commands
+                            .entity(armor_elem)
+                            .insert((VertexData(side.clone(), v.clone()), Visibility::Hidden));
+                        vertices.push(armor_elem);
                     }
                     ArmorComponentType::Collider => {
                         self.process_collider(armor_elem);
@@ -193,14 +215,9 @@ impl ArmorConstructor<'_, '_> {
             error!("{} has no marker data", root);
             return;
         };
-        let m = vertices.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
-        for (e, _) in vertices {
-            self.commands.entity(e).insert((
-                marker.clone(),
-                VertexData(m.clone()),
-                Visibility::Hidden,
-            ));
-        }
+        self.commands
+            .entity(root)
+            .insert(ArmorRoot { marker, vertices });
     }
 }
 

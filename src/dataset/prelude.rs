@@ -1,11 +1,14 @@
 use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
-use crate::robomaster::prelude::{Armor, ArmorLabel, ArmorType, MarkerData, Team, VertexData};
+use crate::robomaster::prelude::{
+    Armor, ArmorLabel, ArmorRoot, ArmorType, MarkerData, Team, VertexData,
+};
 use crate::ros2::capture::CaptureCamera;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderSystems};
+use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -140,7 +143,7 @@ impl SnapshotSync for DatasetSnapshotSync {
     fn captured(
         self: Box<Self>,
         world: &mut DeferredWorld,
-        config: &CaptureConfig,
+        _config: &CaptureConfig,
     ) -> Box<dyn SnapshotAsync> {
         Box::new(DatasetSnapshot {
             data: self.data,
@@ -165,7 +168,9 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 fn capture(
-    vertex_data: Extract<Query<(Entity, &GlobalTransform, &Armor, &MarkerData, &VertexData)>>,
+    root_data: Extract<Query<(Entity, &Armor, &ArmorRoot)>>,
+    vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
+    marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
@@ -175,10 +180,12 @@ fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (vertex_entity, global_transform, &Armor(team, typ, label), markers, vertices) in
-        vertex_data.iter()
+    for (vertex_entity, &Armor(ref ident, team, typ, label), ArmorRoot { marker, vertices }) in
+        root_data.iter()
     {
-        let all_in_frustum = |unmapped: &[Vec3]| -> Option<Vec<(Vec3, (u32, u32))>> {
+        let all_in_frustum = |global_transform: &GlobalTransform,
+                              unmapped: &[Vec3]|
+         -> Option<Vec<(Vec3, (u32, u32))>> {
             let mut mapped = Vec::with_capacity(unmapped.len());
             for elem in unmapped {
                 let global = global_transform.transform_point(*elem);
@@ -188,19 +195,30 @@ fn capture(
             Some(mapped)
         };
         let mut vert = Vec::with_capacity(vertices.len());
-        for vertices in &vertices.0 {
-            let Some(vertices) = all_in_frustum(vertices.as_slice()) else {
+        for vertex in vertices {
+            let (tf, VertexData(side, vertices)) = vertex_data.get(*vertex).unwrap();
+            let Some(vertices) = all_in_frustum(tf, vertices.as_slice()) else {
                 continue;
             };
-            vert.push(vertices.into_iter().map(|v| v.0).collect());
+            vert.push((
+                side.as_str(),
+                *vertex,
+                vertices.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+            ));
         }
         if vert.len() != vertices.len() {
             continue;
         }
-        let Some(markers) = all_in_frustum(&markers.0) else {
+        let (tf, MarkerData(markers)) = marker_data.get(*marker).unwrap();
+        let Some(markers) = all_in_frustum(tf, markers) else {
             continue;
         };
-        if !occlusion.visible(camera_pos, vertex_entity, vert.as_slice()) {
+        if !occlusion.visible(
+            camera_pos,
+            ident.identifier.as_str(),
+            vertex_entity,
+            vert.as_slice(),
+        ) {
             continue;
         }
         let marker_ordered = sort_screen_points(markers.as_slice().try_into().unwrap());
@@ -221,7 +239,6 @@ fn capture(
             armor_screen.len()
         );
     }
-
     let mut rr = armor_r.lock().unwrap();
     armor_screen.drain().for_each(|(_, n)| {
         for (typ, label, color, pos) in n {
