@@ -65,7 +65,10 @@ fn build_targets(
             .resolution(30_000 / 3);
         let handle = param.gizmo_assets.add(gizmo);
         */
-        for entity in [deactivated, activating, activated].into_iter().flatten() {
+        for entity in [deactivated, activating, activated, completed]
+            .into_iter()
+            .flatten()
+        {
             insert_all_child(&mut param.commands, entity, &param.children, || {
                 (
                     RuneIndex(logical_index, face_entity),

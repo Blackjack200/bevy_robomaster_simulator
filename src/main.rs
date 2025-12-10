@@ -190,7 +190,15 @@ fn main() {
 
 #[derive(Component, Deref, DerefMut)]
 struct PreciousCollision(
-    HashMap<String, (ColliderConstructorHierarchy, CollisionLayers, Visibility)>,
+    HashMap<
+        String,
+        (
+            ColliderConstructorHierarchy,
+            CollisionLayers,
+            Visibility,
+            Option<RigidBody>,
+        ),
+    >,
 );
 
 #[derive(Component)]
@@ -238,13 +246,17 @@ fn setup(
     };
 
     commands.spawn((
-        RigidBody::Static,
         SceneRoot(asset_server.load("GROUND.glb#Scene0")),
         Transform::IDENTITY,
         Friction::new(0.5),
         PreciousCollision(HashMap::from([(
             "GROUND_DENSE".to_string(),
-            (trimesh(), layer_env, Visibility::Visible),
+            (
+                trimesh(),
+                layer_env,
+                Visibility::Visible,
+                Some(RigidBody::Static),
+            ),
         )])),
     ));
     commands.spawn((
@@ -256,7 +268,12 @@ fn setup(
 
     let mut power_rune_col = HashMap::from([(
         "BASE".to_string(),
-        (trimesh(), layer_env, Visibility::Visible),
+        (
+            trimesh(),
+            layer_env,
+            Visibility::Visible,
+            Some(RigidBody::Static),
+        ),
     )]);
     for i in 1..=2 {
         /*power_rune_col.insert(
@@ -267,7 +284,7 @@ fn setup(
             for k in ["ACTIVATED", "ACTIVE", "COMPLETED", "DISABLED"] {
                 power_rune_col.insert(
                     format!("FACE_{}_TARGET_{}_{}", i, j, k).to_string(),
-                    (voxel(0.015), layer_env, Visibility::Visible),
+                    (voxel(0.015), layer_env, Visibility::Visible, None),
                 );
             }
         }
@@ -293,6 +310,12 @@ fn setup(
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
         Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        Transform::from_xyz(2.0, 1.0, 1.0),
+        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
     ));
 
     commands.spawn((
@@ -415,12 +438,10 @@ fn setup_vehicle(
                     if !set.insert(e) {
                         continue;
                     }
-                    if name.starts_with("ARMOR_") && name.ends_with("_L_BLUE") && team == Team::Red
-                    {
+                    if name.contains("ARMOR_L") && name.ends_with("_BLUE") && team == Team::Red {
                         commands.entity(e).despawn();
                     }
-                    if name.starts_with("ARMOR_") && name.ends_with("_L_RED") && team == Team::Blue
-                    {
+                    if name.contains("ARMOR_L") && name.ends_with("_RED") && team == Team::Blue {
                         commands.entity(e).despawn();
                     }
                     for (ee, n, &ChildOf(r)) in node_query {
@@ -542,15 +563,14 @@ fn setup_collision(
         let Ok(name) = name.get(e) else {
             continue;
         };
-        if let Some((constructor, layer, visibility)) = map.get(&name.to_string()) {
-            println!("{}", name);
-            commands.entity(e).insert((
-                RigidBody::Static,
-                Restitution::ZERO,
-                constructor.clone(),
-                CollisionMargin(0.001),
-                *layer,
-            ));
+        if let Some((constructor, layer, visibility, rigid)) = map.get(&name.to_string()) {
+            if let Some(rigid) = rigid {
+                commands
+                    .entity(e)
+                    .insert((*rigid, constructor.clone(), *layer));
+            } else {
+                commands.entity(e).insert((constructor.clone(), *layer));
+            }
             if visibility == Visibility::Hidden {
                 commands.entity(e).insert(*visibility);
             }

@@ -2,9 +2,8 @@ use crate::robomaster::power_rune::common::RuneAction;
 use crate::robomaster::power_rune::rune::PowerRune;
 use crate::robomaster::power_rune::state::MechanismState;
 use crate::robomaster::visibility::StatefulAppearance;
-use avian3d::prelude::CollisionEventsEnabled;
-use avian3d::prelude::CollisionStart;
-use bevy::prelude::{Commands, Component, Entity, EntityEvent, On, Query, With};
+use avian3d::prelude::{CollisionEnd, CollisionEventsEnabled};
+use bevy::prelude::{ChildOf, Commands, Component, Entity, EntityEvent, On, Query, With};
 use rand::Rng;
 
 #[derive(Component)]
@@ -33,11 +32,12 @@ pub struct RuneHit {
 }
 
 fn handle_rune_collision(
-    event: On<CollisionStart>,
+    event: On<CollisionEnd>,
     mut commands: Commands,
     mut runes: Query<&mut PowerRune>,
     targets: Query<&RuneIndex>,
     projectiles: Query<(), With<Projectile>>,
+    child_of: Query<&ChildOf>,
     mut appearance: StatefulAppearance,
 ) {
     if event.body1.is_none() || event.body2.is_none() {
@@ -47,48 +47,46 @@ fn handle_rune_collision(
     if !projectiles.contains(projectile) {
         return;
     }
-    let target = event.body2.unwrap();
-    let Ok(&RuneIndex(index, rune_ent)) = targets.get(target) else {
-        return;
-    };
-    if appearance.visible(target) {
-        return;
-    }
-    let Ok(mut rune) = runes.get_mut(rune_ent) else {
-        return;
-    };
+    for ancestor in child_of.iter_ancestors(event.collider2) {
+        let Ok(&RuneIndex(index, rune_ent)) = targets.get(ancestor) else {
+            return;
+        };
+        let Ok(mut rune) = runes.get_mut(rune_ent) else {
+            return;
+        };
 
-    let mut rng = rand::rng();
+        let mut rng = rand::rng();
 
-    let result = rune.on_target_hit(index, &mut rng, &mut appearance);
-    match rune.state {
-        MechanismState::Inactive { .. } => {
-            commands.trigger(RuneHit {
-                rune: rune_ent,
-                result,
-            });
-        }
-        MechanismState::Activating(_) => {
-            commands.trigger(RuneHit {
-                rune: rune_ent,
-                result,
-            });
-        }
-        MechanismState::Activated { .. } => {
-            if result.change_state {
-                commands.trigger(RuneActivated { rune: rune_ent });
-            } else {
+        let result = rune.on_target_hit(index, &mut rng, &mut appearance);
+        match rune.state {
+            MechanismState::Inactive { .. } => {
                 commands.trigger(RuneHit {
                     rune: rune_ent,
                     result,
                 });
             }
-        }
-        MechanismState::Failed { .. } => {
-            commands.trigger(RuneHit {
-                rune: rune_ent,
-                result,
-            });
+            MechanismState::Activating(_) => {
+                commands.trigger(RuneHit {
+                    rune: rune_ent,
+                    result,
+                });
+            }
+            MechanismState::Activated { .. } => {
+                if result.change_state {
+                    commands.trigger(RuneActivated { rune: rune_ent });
+                } else {
+                    commands.trigger(RuneHit {
+                        rune: rune_ent,
+                        result,
+                    });
+                }
+            }
+            MechanismState::Failed { .. } => {
+                commands.trigger(RuneHit {
+                    rune: rune_ent,
+                    result,
+                });
+            }
         }
     }
 }
