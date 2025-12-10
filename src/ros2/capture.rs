@@ -148,7 +148,6 @@ fn setup_camera(
             far: 500000000.0,
             ..default()
         }),
-        Exposure::SUNLIGHT,
         Msaa::Off,
         Fxaa::default(),
         Hdr,

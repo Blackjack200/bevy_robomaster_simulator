@@ -23,6 +23,7 @@ use bevy::camera::Exposure;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::light::light_consts::lux;
+use bevy::prelude::light_consts::lumens;
 use bevy::render::RenderSystems;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
@@ -215,10 +216,9 @@ fn setup(
         DirectionalLight {
             color: Color::srgb(0.9, 0.95, 1.0),
             shadows_enabled: true,
-            illuminance: lux::DIRECT_SUNLIGHT,
             ..default()
         },
-        Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)),
     ));
 
     let layer_env = CollisionLayers::new(
@@ -259,6 +259,14 @@ fn setup(
             ),
         )])),
     ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
+        Transform::IDENTITY
+            .with_scale(Vec3::splat(1.0))
+            .with_translation(Vec3::new(1.0, 0.5, 1.0)),
+    ));
+
     commands.spawn((
         RigidBody::Static,
         SceneRoot(asset_server.load("OUTPOST.glb#Scene0")),
@@ -328,7 +336,6 @@ fn setup(
             far: 500000000.0,
             ..default()
         }),
-        Exposure::SUNLIGHT,
         Msaa::Off,
         Tonemapping::None,
         Fxaa::default(),

@@ -252,8 +252,8 @@ pub fn extract_vertices(mesh: &Mesh) -> Option<Vec<Vec3>> {
         .filter(|points: &Vec<Vec3>| !points.is_empty())
 }
 
-// TODO
-macro_rules! root {
+#[macro_export]
+macro_rules! entity_root {
     (
         super $child_of:expr => $children:expr;
         name $name:expr;
@@ -261,32 +261,41 @@ macro_rules! root {
             $($expr:tt)*
         }
     ) => {{
-        let _child_of = $child_of;
-        let _children = $children;
-        let _name = $name;
-        root!(@internal $root, _name, _child_of, _children, { $($expr)* });
+        let _child_of = &$child_of;
+        let _children = &$children;
+        let _name = &$name;
+        let _root = $root;
+        $crate::entity_root!(@internal _root, _name, _child_of, _children, { $($expr)* });
     }};
-    (@internal $root:ident, $name:expr, $child_of:ident, $children:ident, {
+
+    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {
         match {
-            $($label:literal => {
-                $($tt:tt)*
-            });*$(;)?
+            $($label:literal => $body:ident $tt:tt);* $(;)?
         }
     }) => {{
-        if let Ok(_children) = $children.get($root) {
-            for $root in _children {
-                let $root = *$root;
-                let Some(name) = $name.get(root_entity).ok() else { continue; };
-                let name = name.as_str();
-                 if false {}
-                 $(
-                  else if name == $label {
-                    $($tt)*
-                  }
-                 )*
+        if let Ok(children) = $children.get($root) {
+            for &child in children.iter() {
+                let Ok(name) = $name.get(child) else { continue; };
+                let name_str = name.as_str();
+
+                $(
+                    if name_str == $label {
+                        let $body = child;
+                        $crate::entity_root!(@internal $body, $name, $child_of, $children, $tt);
+                    }
+                )*
             }
         }
     }};
+
+    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {
+        $($stmt:stmt);* $(;)?
+    }) => {{
+        let _ = $root;
+        $($stmt)*
+    }};
+
+    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {}) => {{}};
 }
 
 fn insert(
