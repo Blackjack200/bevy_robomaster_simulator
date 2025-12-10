@@ -8,7 +8,6 @@ use crate::ros2::capture::CaptureCamera;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderSystems};
-use futures::StreamExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -201,7 +200,7 @@ fn capture(
                 continue;
             };
             vert.push((
-                side.as_str(),
+                side,
                 *vertex,
                 vertices.into_iter().map(|v| v.0).collect::<Vec<_>>(),
             ));
@@ -213,15 +212,17 @@ fn capture(
         let Some(markers) = all_in_frustum(tf, markers) else {
             continue;
         };
+        let marker_ordered = sort_screen_points(markers.as_slice().try_into().unwrap());
         if !occlusion.visible(
             camera_pos,
+            camera_global_transform.forward().as_vec3(),
+            &marker_ordered,
             ident.identifier.as_str(),
             vertex_entity,
             vert.as_slice(),
         ) {
             continue;
         }
-        let marker_ordered = sort_screen_points(markers.as_slice().try_into().unwrap());
         armor_screen.entry(team).or_insert(default()).push((
             typ,
             label,

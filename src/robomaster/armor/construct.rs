@@ -5,27 +5,45 @@ use bevy::ecs::system::SystemParam;
 use bevy::ecs::system::lifetimeless::Read;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::{
-    Added, Assets, ChildOf, Children, Commands, Component, Deref, DerefMut, Entity, Mesh, Mesh3d,
-    Name, Plugin, Query, Res, Update, Vec3, Visibility, With, error, info,
+    Added, Assets, ChildOf, Children, Commands, Component, Entity, Mesh, Mesh3d, Name, Plugin,
+    Query, Res, Update, Vec3, Visibility, With, error, info,
 };
 
 #[derive(Component)]
 pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
 
 #[derive(Component, Clone, Debug)]
-pub struct VertexData(pub String, pub Vec<Vec3>);
+pub struct VertexData(pub Side, pub Vec<Vec3>);
 
 #[derive(Component, Clone)]
 pub struct Armor(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
+    Unknown(String),
+}
+
+impl<T: ToString> From<T> for Side {
+    fn from(value: T) -> Self {
+        let str = value.to_string();
+        match str.to_lowercase().as_str() {
+            "left" | "l" => Side::Left,
+            "right" | "r" => Side::Right,
+            _ => Side::Unknown(str),
+        }
+    }
+}
+
 /// 装甲组件类型枚举
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArmorComponentType {
     Root,            // 根实体
     Character,       // 字符标识
-    LightBar,        // 灯条
+    LightBar(Side),  // 灯条
     Marker,          // 标记点
-    Vertex(String),  // 顶点数据
+    Vertex(Side),    // 顶点数据
     Collider,        // 碰撞体（基础装甲）
     Unknown(String), // 未知类型
 }
@@ -38,15 +56,15 @@ impl ArmorComponentType {
         match parts[0] {
             "ROOT" => Self::Root,
             "C" => Self::Character,
-            "L" => Self::LightBar,
+            "L" => Self::LightBar(parts.get(1).unwrap_or(&"unknown").into()),
             "MARKER" => Self::Marker,
-            "VERTEX" => Self::Vertex(parts[1].parse().unwrap()),
+            "VERTEX" => Self::Vertex(parts.get(1).unwrap_or(&"unknown").into()),
             other => Self::Unknown(other.to_string()),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArmorIdentifier {
     pub identifier: String,
     pub component_type: ArmorComponentType,
@@ -184,7 +202,7 @@ impl ArmorConstructor<'_, '_> {
                 // 根据组件类型执行不同的处理
                 match info.component_type {
                     ArmorComponentType::Character
-                    | ArmorComponentType::LightBar
+                    | ArmorComponentType::LightBar(_)
                     | ArmorComponentType::Root => {
                         // 忽略这些类型
                     }

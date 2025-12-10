@@ -1,5 +1,5 @@
 use crate::Controlled;
-use crate::robomaster::prelude::{Armor, ArmorComponentType};
+use crate::robomaster::prelude::{Armor, ArmorComponentType, Side};
 use bevy::{
     ecs::system::{SystemParam, lifetimeless::Read},
     prelude::*,
@@ -17,8 +17,8 @@ pub struct Occlusion<'w, 's> {
 
 enum OcclusionType {
     None,
-    VehicleBody,
-    Armor,
+    Tolerated,
+    Untolerated,
 }
 
 impl<'w, 's> Occlusion<'w, 's> {
@@ -27,15 +27,15 @@ impl<'w, 's> Occlusion<'w, 's> {
         camera_pos: Vec3,
         ident: &str,
         armor_entity: Entity,
-        side: &str,
-        vertex_entity: Entity,
+        side: &Side,
+        _vertex_entity: Entity,
         sample_pos: Vec3,
-    ) -> bool {
+    ) -> OcclusionType {
         let dir = camera_pos - sample_pos;
         let total_dist = dir.length();
 
         if total_dist < f32::EPSILON {
-            return false;
+            return OcclusionType::None;
         }
 
         let ray = Ray3d::new(sample_pos, Dir3::new(dir.normalize()).unwrap());
@@ -56,10 +56,11 @@ impl<'w, 's> Occlusion<'w, 's> {
                             if parent.0.identifier != ident {
                                 return true;
                             }
-                            let ArmorComponentType::Vertex(ref s) = parent.0.component_type else {
-                                return true;
-                            };
-                            s != side
+                            match parent.0.component_type {
+                                ArmorComponentType::LightBar(ref s) => s != side,
+                                ArmorComponentType::Vertex(ref s) => s != side,
+                                _ => true,
+                            }
                         })
                     }) {
                         return true;
@@ -69,12 +70,28 @@ impl<'w, 's> Occlusion<'w, 's> {
                 ..default()
             },
         );
-        for (e, hit) in hits {
+        for &(e, ref hit) in hits {
+            if self.child_of.iter_ancestors(e).any(|ancestor| {
+                self.armor
+                    .get(ancestor)
+                    .is_ok_and(|x| matches!(x.0.component_type, ArmorComponentType::LightBar(_)))
+            }) {
+                println!(
+                    "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",
+                    self.names.get(armor_entity),
+                    side,
+                    self.names.get(e),
+                    hit.distance,
+                    total_dist
+                );
+                //untolerated
+                return OcclusionType::Untolerated;
+            }
             println!(
                 "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",
                 self.names.get(armor_entity),
                 side,
-                self.names.get(*e),
+                self.names.get(e),
                 hit.distance,
                 total_dist
             );
@@ -85,22 +102,24 @@ impl<'w, 's> Occlusion<'w, 's> {
                 println!(
                     "{:?} is occluded by: {:?}, hit_dist: {}, total_dist: {}",
                     self.names.get(armor_entity),
-                    self.names.get(*e),
+                    self.names.get(e),
                     hit.distance,
                     total_dist
                 );
-                return true;
+                return OcclusionType::Tolerated;
             }
         }
-        false
+        OcclusionType::None
     }
 
     pub fn visible(
         &mut self,
         camera_pos: Vec3,
+        forward: Vec3,
+        markers: &[(Vec3, (u32, u32)); 4],
         ident: &str,
         armor_entity: Entity,
-        vertices: &[(&str, Entity, Vec<Vec3>)],
+        vertices: &[(&Side, Entity, Vec<Vec3>)],
     ) -> bool {
         vertices
             .iter()
@@ -112,11 +131,24 @@ impl<'w, 's> Occlusion<'w, 's> {
         camera_pos: Vec3,
         ident: &str,
         armor_entity: Entity,
-        vertex_entity: &(&str, Entity, Vec<Vec3>),
+        vertex_entity: &(&Side, Entity, Vec<Vec3>),
     ) -> bool {
         let (side, vertex_entity, ref samples) = *vertex_entity;
-        samples.iter().any(move |&sample| {
-            !self.sample_occluded(camera_pos, ident, armor_entity, side, vertex_entity, sample)
-        })
+        let iter = samples.iter().map(move |&sample| {
+            self.sample_occluded(camera_pos, ident, armor_entity, side, vertex_entity, sample)
+        });
+        let mut visible = false;
+        for result in iter {
+            match result {
+                OcclusionType::None => {
+                    visible = true;
+                }
+                OcclusionType::Tolerated => {}
+                OcclusionType::Untolerated => {
+                    return false;
+                }
+            }
+        }
+        visible
     }
 }
