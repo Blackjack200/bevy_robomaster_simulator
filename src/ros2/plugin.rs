@@ -148,8 +148,8 @@ fn capture_rune(
                     "muzzle" as (muzzle_rel.translation, muzzle_rel.rotation) {
                         "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub{}
                     }
-                    "camera_link" as (cam_rel.translation, Quat::IDENTITY) {
-                        "camera_optical_frame" as (Vec3::ZERO, cam_rel.rotation * Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)) for camera_pose_pub {}
+                    "camera_link" as (cam_rel.translation, cam_rel.rotation) for camera_pose_pub {
+                        "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)) {}
                     }
                 }
             }

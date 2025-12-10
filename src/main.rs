@@ -19,11 +19,8 @@ use crate::{
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
 };
 use avian3d::prelude::*;
-use bevy::camera::Exposure;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
-use bevy::light::light_consts::lux;
-use bevy::prelude::light_consts::lumens;
 use bevy::render::RenderSystems;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, PresentMode, SystemCursorIcon};
@@ -36,6 +33,7 @@ use bevy::{
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::f32::consts::PI;
 use std::sync::Mutex;
 
 #[derive(Component)]
@@ -752,6 +750,7 @@ fn update_camera_follow(
     infantry: Single<&Transform, (With<Infantry>, With<Controlled>)>,
     gimbal: Single<&Transform, (With<Controlled>, With<InfantryGimbal>)>,
     view_offset: Single<&Transform, (With<Controlled>, With<InfantryViewOffset>)>,
+    launch_offset: Single<&Transform, (With<Controlled>, With<InfantryLaunchOffset>)>,
     mode: Res<CameraMode>,
 ) {
     let gimbal_transform = gimbal.into_inner();
@@ -765,7 +764,9 @@ fn update_camera_follow(
             let view_offset_world = gimbal_world_rotation * view_offset_transform.translation;
 
             camera_transform.translation = infantry.translation + view_offset_world;
-            camera_transform.rotation = gimbal_world_rotation;
+            camera_transform.rotation = gimbal_world_rotation
+                * launch_offset.rotation
+                * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)
         }
         FollowingType::ThirdPerson => {
             let base_transform = infantry.into_inner();
