@@ -319,12 +319,6 @@ fn setup(
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
-        Transform::from_xyz(2.0, 1.0, 1.0),
-        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
-    ));
-
-    commands.spawn((
         Camera3d::default(),
         Camera::default(),
         PrimaryEguiContext,
