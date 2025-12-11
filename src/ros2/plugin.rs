@@ -2,7 +2,7 @@ use crate::capture::driver::CaptureConfig;
 use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
-use crate::{Controlled, InfantryGimbal, InfantryLaunchOffset, arc_mutex};
+use crate::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, arc_mutex};
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
@@ -169,7 +169,27 @@ fn capture_rune(
         transforms: transform_stamped,
     });
 }
-fn process_subscription(gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>) {}
+
+fn process_subscription(
+    gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>,
+    gimbal: Single<
+        (&mut Transform, &mut InfantryGimbal),
+        (With<Controlled>, Without<InfantryChassis>),
+    >,
+) {
+    let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
+        return;
+    };
+    let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
+    (gimbal_data.local_yaw, gimbal_data.pitch, _) =
+        gimbal_transform.rotation.to_euler(EulerRot::YXZ);
+    gimbal_data.local_yaw = cmd.yaw as f32;
+    gimbal_data.pitch = cmd.pitch as f32;
+    let gimbal_rotation = Quat::from_euler(EulerRot::YXZ, cmd.yaw as f32, cmd.pitch as f32, 0.0);
+
+    gimbal_transform.rotation = gimbal_rotation;
+}
+
 fn cleanup_ros2_system(
     mut exit: MessageReader<AppExit>,
     stop_signal: Res<StopSignal>,
@@ -231,6 +251,7 @@ impl Plugin for ROS2Plugin {
                 },
             })
             .add_systems(Last, cleanup_ros2_system)
+            .add_systems(Update, process_subscription)
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {
