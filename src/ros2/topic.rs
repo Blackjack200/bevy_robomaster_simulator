@@ -53,13 +53,12 @@ impl<T: RosTopic> TopicSubscriber<T> {
 
 fn subscriber<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicSubscriber<T> {
     let mut subscriber = node.subscribe::<T::T>(T::TOPIC, T::QOS).unwrap();
-    let mut sub = TopicSubscriber::new();
+    let sub = TopicSubscriber::new();
     let mutex = sub.receiver.clone();
     std::thread::spawn(move || {
         while !signal.load(std::sync::atomic::Ordering::Acquire) {
             match block_on(subscriber.next()) {
                 Some(msg) => {
-                    println!("RD");
                     mutex.lock().unwrap().replace(msg);
                 }
                 None => continue,

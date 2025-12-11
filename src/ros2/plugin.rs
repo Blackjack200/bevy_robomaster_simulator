@@ -9,7 +9,6 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
-use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -148,9 +147,7 @@ fn capture_rune(
 
         "map" {
             "odom" as (gimbal.translation(), Quat::IDENTITY) for odom_pose_pub {
-                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()
-                * muzzle_offset.1.rotation
-                * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for gimbal_pose_pub {
+                "gimbal_link" as (Vec3::ZERO, gimbal.rotation() * muzzle_offset.1.rotation * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for gimbal_pose_pub {
                     "muzzle" as (muzzle_rel.translation, Quat::IDENTITY) {
                         "muzzle_link" as (Vec3::ZERO, Quat::IDENTITY) for muzzle_pose_pub{}
                     }
@@ -195,13 +192,11 @@ fn process_subscription(
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
     loop {
         let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
-            println!("222");
             return;
         };
         if rand::random::<f32>() > 0.1 {
             return;
         }
-        println!("111");
         if cmd.distance == -1.0 {
             return;
         }
@@ -216,10 +211,8 @@ fn process_subscription(
         gimbal_data.pitch = pitch_f32;
         let expected_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
         let current_rotation = muzzle_offset.0.rotation();
-        let a = expected_rotation * current_rotation.inverse();
-        // A*current_rotation==expected_rotation
-
-        gimbal_transform.rotation = a * gimbal_transform.rotation;
+        let delta = expected_rotation * current_rotation.inverse();
+        gimbal_transform.rotation = delta * gimbal_transform.rotation;
     }
 }
 
@@ -239,6 +232,9 @@ fn cleanup_ros2_system(
         }
     }
 }
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct SubscribeAutoAim(AtomicBool);
 
 #[derive(Default)]
 pub struct ROS2Plugin {}
@@ -268,6 +264,7 @@ impl Plugin for ROS2Plugin {
 
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
+            .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
             .add_plugins(RosCapturePlugin {
                 config: CaptureConfig {
                     width: 1440,
@@ -284,7 +281,24 @@ impl Plugin for ROS2Plugin {
                 },
             })
             .add_systems(Last, cleanup_ros2_system)
-            .add_systems(Update, process_subscription)
+            .add_systems(
+                Update,
+                process_subscription
+                    .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
+            )
+            .add_systems(
+                Update,
+                |keyboard: Res<ButtonInput<KeyCode>>, enabled: Res<SubscribeAutoAim>| {
+                    if keyboard.just_pressed(KeyCode::F5) {
+                        info!("Toggling auto-aim subscription.");
+                        let new_state = !enabled.fetch_xor(true, Ordering::AcqRel);
+                        info!(
+                            "Auto-aim subscription is now {}.",
+                            if new_state { "ENABLED" } else { "DISABLED" }
+                        );
+                    }
+                },
+            )
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {
