@@ -185,8 +185,10 @@ fn process_subscription(
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
     loop {
         let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
+            println!("222");
             return;
         };
+        println!("111");
         if cmd.distance == -1.0 {
             return;
         }
@@ -270,7 +272,7 @@ impl Plugin for ROS2Plugin {
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {
-                    node.spin_once(Duration::from_millis(10));
+                    node.spin_once(Duration::from_millis(1));
                 }
             }))));
     }

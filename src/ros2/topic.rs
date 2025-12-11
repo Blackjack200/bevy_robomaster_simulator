@@ -1,7 +1,7 @@
 use bevy::prelude::{App, Resource};
-use bevy::tasks::AsyncComputeTaskPool;
 use bevy::tasks::futures_lite::StreamExt;
 use bevy::tasks::futures_lite::future::block_on;
+use bevy::tasks::{AsyncComputeTaskPool, futures_lite};
 use futures::SinkExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{Receiver, Sender, TryRecvError};
@@ -57,17 +57,19 @@ impl<T: RosTopic> TopicSubscriber<T> {
 fn subscriber<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicSubscriber<T> {
     let (mut sender, receiver) = mpsc::channel(1024);
     let mut subscriber = node.subscribe::<T::T>(T::TOPIC, T::QOS).unwrap();
-    std::thread::spawn(move || {
-        while !signal.load(std::sync::atomic::Ordering::Acquire) {
-            match block_on(subscriber.next()) {
-                Some(msg) => {
-                    let _ = block_on(sender.send(msg));
+    AsyncComputeTaskPool::get()
+        .spawn(async move {
+            while !signal.load(std::sync::atomic::Ordering::Acquire) {
+                match subscriber.next().await {
+                    Some(msg) => {
+                        sender.send(msg).await;
+                    }
+                    None => break,
                 }
-                None => break,
+                futures_lite::future::pending::<()>().await;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-    });
+        })
+        .detach();
 
     TopicSubscriber::new(receiver)
 }
