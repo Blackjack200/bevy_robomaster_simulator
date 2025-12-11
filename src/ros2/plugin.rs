@@ -148,11 +148,13 @@ fn capture_rune(
 
         "map" {
             "odom" as (gimbal.translation(), Quat::IDENTITY) for odom_pose_pub {
-                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()) for gimbal_pose_pub {
-                    "muzzle" as (muzzle_rel.translation, muzzle_rel.rotation) {
-                        "muzzle_link" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for muzzle_pose_pub{}
+                "gimbal_link" as (Vec3::ZERO, gimbal.rotation()
+                * muzzle_offset.1.rotation
+                * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0)) for gimbal_pose_pub {
+                    "muzzle" as (muzzle_rel.translation, Quat::IDENTITY) {
+                        "muzzle_link" as (Vec3::ZERO, Quat::IDENTITY) for muzzle_pose_pub{}
                     }
-                    "camera_link" as (cam_rel.translation, cam_rel.rotation) for camera_pose_pub {
+                    "camera_link" as (cam_rel.translation, Quat::IDENTITY) for camera_pose_pub {
                         "camera_optical_frame" as (Vec3::ZERO, Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0)) {}
                     }
                 }
@@ -179,7 +181,15 @@ fn process_subscription(
     gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
-        (With<Controlled>, Without<InfantryChassis>),
+        (
+            With<Controlled>,
+            Without<InfantryChassis>,
+            Without<InfantryLaunchOffset>,
+        ),
+    >,
+    muzzle_offset: Single<
+        (&GlobalTransform, &Transform),
+        (With<InfantryLaunchOffset>, With<Controlled>),
     >,
 ) {
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
@@ -188,6 +198,9 @@ fn process_subscription(
             println!("222");
             return;
         };
+        if rand::random::<f32>() > 0.1 {
+            return;
+        }
         println!("111");
         if cmd.distance == -1.0 {
             return;
@@ -198,12 +211,15 @@ fn process_subscription(
             });
         }
         let yaw_f32 = (cmd.yaw as f32).to_radians();
-        let pitch_f32 = (cmd.pitch as f32).to_radians();
+        let pitch_f32 = (cmd.pitch as f32 - 90.0).to_radians();
         gimbal_data.local_yaw = yaw_f32;
         gimbal_data.pitch = pitch_f32;
-        let gimbal_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
+        let expected_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
+        let current_rotation = muzzle_offset.0.rotation();
+        let a = expected_rotation * current_rotation.inverse();
+        // A*current_rotation==expected_rotation
 
-        gimbal_transform.rotation = gimbal_rotation;
+        gimbal_transform.rotation = a * gimbal_transform.rotation;
     }
 }
 

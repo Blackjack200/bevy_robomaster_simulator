@@ -6,6 +6,7 @@ use futures::SinkExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::{Receiver, Sender, TryRecvError};
 use r2r::geometry_msgs::msg::PoseStamped;
+use r2r::map_msgs::msg;
 use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image};
 use r2r::tf2_msgs::msg::TFMessage;
@@ -35,43 +36,37 @@ impl<T: RosTopic> TopicPublisher<T> {
 
 #[derive(Resource)]
 pub struct TopicSubscriber<T: RosTopic> {
-    receiver: Mutex<Receiver<T::T>>,
+    receiver: Arc<Mutex<Option<T::T>>>,
 }
 
 impl<T: RosTopic> TopicSubscriber<T> {
-    pub(super) fn new(receiver: Receiver<T::T>) -> Self {
+    pub(super) fn new() -> Self {
         TopicSubscriber {
-            receiver: Mutex::new(receiver),
+            receiver: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn try_recv(&self) -> Result<Option<T::T>, TryRecvError> {
-        self.receiver.lock().unwrap().try_next()
-    }
-
-    pub fn recv(&self) -> Option<T::T> {
-        block_on(self.receiver.lock().unwrap().next())
+        Ok(self.receiver.lock().unwrap().take())
     }
 }
 
 fn subscriber<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicSubscriber<T> {
-    let (mut sender, receiver) = mpsc::channel(1024);
     let mut subscriber = node.subscribe::<T::T>(T::TOPIC, T::QOS).unwrap();
-    AsyncComputeTaskPool::get()
-        .spawn(async move {
-            while !signal.load(std::sync::atomic::Ordering::Acquire) {
-                match subscriber.next().await {
-                    Some(msg) => {
-                        sender.send(msg).await;
-                    }
-                    None => break,
+    let mut sub = TopicSubscriber::new();
+    let mutex = sub.receiver.clone();
+    std::thread::spawn(move || {
+        while !signal.load(std::sync::atomic::Ordering::Acquire) {
+            match block_on(subscriber.next()) {
+                Some(msg) => {
+                    println!("RD");
+                    mutex.lock().unwrap().replace(msg);
                 }
-                futures_lite::future::pending::<()>().await;
+                None => continue,
             }
-        })
-        .detach();
-
-    TopicSubscriber::new(receiver)
+        }
+    });
+    sub
 }
 
 fn publisher<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicPublisher<T> {
