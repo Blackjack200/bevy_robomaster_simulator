@@ -132,9 +132,9 @@ macro_rules! topic {
         }
         topic!($($remaining)*);
     };
-    (sub {$($url:literal as $msg_typ:ty as $topic:ident;)*} $($remaining:tt)*) => {
+    (sub {$($url:literal as $msg_typ:ty as $topic:ident $(with $qos: expr)?;)*} $($remaining:tt)*) => {
         $(
-            topic!($topic, $msg_typ, $url);
+            topic!($topic, $msg_typ, $url $(, $qos)?);
         )*
 
         pub fn register_sub(atomic:Arc<AtomicBool>, app:&mut App, node:&mut Node) {
@@ -157,6 +157,6 @@ topic!(
         "/camera_pose" as PoseStamped as CameraPoseTopic;
     }
     sub {
-        "/rune_solver/cmd_gimbal" as GimbalCmd as GimbalCmdTopic;
+        "/armor_solver/cmd_gimbal" as GimbalCmd as GimbalCmdTopic with QosProfile::sensor_data();
     }
 );
