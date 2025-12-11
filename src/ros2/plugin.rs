@@ -182,25 +182,27 @@ fn process_subscription(
         (With<Controlled>, Without<InfantryChassis>),
     >,
 ) {
-    let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
-        return;
-    };
-    if cmd.distance == -1.0 {
-        return;
-    }
-    if cmd.fire_advice {
-        commands.queue(|w: &mut World| {
-            w.run_system_once(projectile_launch).unwrap();
-        });
-    }
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
-    (gimbal_data.local_yaw, gimbal_data.pitch, _) =
-        gimbal_transform.rotation.to_euler(EulerRot::YXZ);
-    gimbal_data.local_yaw = cmd.yaw as f32;
-    gimbal_data.pitch = cmd.pitch as f32;
-    let gimbal_rotation = Quat::from_euler(EulerRot::YXZ, cmd.yaw as f32, cmd.pitch as f32, 0.0);
+    loop {
+        let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
+            return;
+        };
+        if cmd.distance == -1.0 {
+            return;
+        }
+        if cmd.fire_advice {
+            commands.queue(|w: &mut World| {
+                w.run_system_once(projectile_launch).unwrap();
+            });
+        }
+        let yaw_f32 = (cmd.yaw as f32).to_radians();
+        let pitch_f32 = (cmd.pitch as f32).to_radians();
+        gimbal_data.local_yaw = yaw_f32;
+        gimbal_data.pitch = pitch_f32;
+        let gimbal_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
 
-    gimbal_transform.rotation = gimbal_rotation;
+        gimbal_transform.rotation = gimbal_rotation;
+    }
 }
 
 fn cleanup_ros2_system(
