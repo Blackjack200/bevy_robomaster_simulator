@@ -2,10 +2,14 @@ use crate::capture::driver::CaptureConfig;
 use crate::robomaster::prelude::{PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::topic::*;
-use crate::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, arc_mutex};
+use crate::{
+    Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, arc_mutex, projectile_launch,
+};
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
+use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -171,6 +175,7 @@ fn capture_rune(
 }
 
 fn process_subscription(
+    mut commands: Commands,
     gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
@@ -180,6 +185,14 @@ fn process_subscription(
     let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
         return;
     };
+    if cmd.distance == -1.0 {
+        return;
+    }
+    if cmd.fire_advice {
+        commands.queue(|w: &mut World| {
+            w.run_system_once(projectile_launch).unwrap();
+        });
+    }
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
     (gimbal_data.local_yaw, gimbal_data.pitch, _) =
         gimbal_transform.rotation.to_euler(EulerRot::YXZ);

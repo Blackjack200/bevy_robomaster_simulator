@@ -61,7 +61,7 @@ fn subscriber<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicSub
         while !signal.load(std::sync::atomic::Ordering::Acquire) {
             match block_on(subscriber.next()) {
                 Some(msg) => {
-                    let _ = sender.send(msg);
+                    let _ = block_on(sender.send(msg));
                 }
                 None => break,
             }
