@@ -13,7 +13,7 @@ use crate::robomaster::prelude::{
     ScanArmor, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
-use crate::ros2::plugin::{ROS2Plugin, SubscribeAutoAim};
+use crate::ros2::plugin::ROS2Plugin;
 use crate::{
     handler::{on_activate, on_hit},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
@@ -35,7 +35,6 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::PI;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
 
 #[derive(Component)]
 struct MainCamera {
@@ -89,10 +88,9 @@ enum GameLayer {
 struct Cooldown(Mutex<Timer>);
 
 /// Creates help text at the bottom of the screen.
-fn create_help_text(auto_aim: bool) -> Text {
+fn create_help_text() -> Text {
     format!(
-        "auto-aim={} total={} accurate={} pct={}\nControls: F2-Screenshot F3-Change Camera | WASD-Move Mouse-Look Space-Shoot",
-        if auto_aim { "ON " } else { "OFF" },
+        "total={} accurate={} pct={}\nControls: F2-Screenshot F3-Change Camera | WASD-Move Mouse-Look Space-Shoot",
         launch_count(),
         accurate_count(),
         accurate_pct()
@@ -103,7 +101,7 @@ fn create_help_text(auto_aim: bool) -> Text {
 /// Spawns the help text at the bottom of the screen.
 fn spawn_text(commands: &mut Commands) {
     commands.spawn((
-        Text::new(""),
+        create_help_text(),
         Node {
             position_type: PositionType::Absolute,
             bottom: px(12),
@@ -113,9 +111,9 @@ fn spawn_text(commands: &mut Commands) {
     ));
 }
 
-fn update_help_text(mut text: Query<&mut Text>, auto_aim: Res<SubscribeAutoAim>) {
+fn update_help_text(mut text: Query<&mut Text>) {
     for mut text in text.iter_mut() {
-        *text = create_help_text(auto_aim.load(Ordering::Acquire));
+        *text = create_help_text();
     }
 }
 

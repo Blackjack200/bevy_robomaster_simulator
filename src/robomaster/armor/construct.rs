@@ -1,3 +1,4 @@
+use crate::entity_root;
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, MarkerData, Team, extract_markers};
 use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
 use bevy::app::App;
@@ -166,7 +167,35 @@ impl ArmorConstructor<'_, '_> {
             ));
     }
 
-    fn process_armor_root(&mut self, root: Entity, armor_data: &ScanArmor) {
+    fn process_armor_root(&mut self, root: Entity, id: ArmorIdentifier, armor_data: &ScanArmor) {
+        entity_root! {
+            super self.child_of => self.children;
+            name self.name;
+            root {
+                match {
+                    :"ARMOR" => ident { };
+                    :"ARMOR_BASE" => ident { };
+                    :"ARMOR_L_L" => ident { };
+                    :"ARMOR_L_R" => ident { };
+                    :"ARMOR_L_L_RED" => ident { };
+                    :"ARMOR_L_R_RED" => ident { };
+                    :"ARMOR_MARKER" => ident { };
+                    :"ARMOR_VERTEX_L" => ident { };
+                    :"ARMOR_VERTEX_R" => ident { };
+                    :"ARMOR_C" => ident {
+                        match {
+                            :"B" => ident { };
+                            :"G" => ident { };
+                            :"O" => ident { };
+                            :"2" => ident { };
+                            :"3" => ident { };
+                            :"4" => ident { };
+                            :"5" => ident { };
+                        }
+                    };
+                }
+            }
+        }
         let name = self.name.get(root).unwrap();
         let Some(info) = ArmorIdentifier::parse(name) else {
             info!("Failed to parse armor name: {}", name);
@@ -252,52 +281,6 @@ pub fn extract_vertices(mesh: &Mesh) -> Option<Vec<Vec3>> {
         .filter(|points: &Vec<Vec3>| !points.is_empty())
 }
 
-#[macro_export]
-macro_rules! entity_root {
-    (
-        super $child_of:expr => $children:expr;
-        name $name:expr;
-        $root:ident {
-            $($expr:tt)*
-        }
-    ) => {{
-        let _child_of = &$child_of;
-        let _children = &$children;
-        let _name = &$name;
-        let _root = $root;
-        $crate::entity_root!(@internal _root, _name, _child_of, _children, { $($expr)* });
-    }};
-
-    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {
-        match {
-            $($label:literal => $body:ident $tt:tt);* $(;)?
-        }
-    }) => {{
-        if let Ok(children) = $children.get($root) {
-            for &child in children.iter() {
-                let Ok(name) = $name.get(child) else { continue; };
-                let name_str = name.as_str();
-
-                $(
-                    if name_str == $label {
-                        let $body = child;
-                        $crate::entity_root!(@internal $body, $name, $child_of, $children, $tt);
-                    }
-                )*
-            }
-        }
-    }};
-
-    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {
-        $($stmt:stmt);* $(;)?
-    }) => {{
-        let _ = $root;
-        $($stmt)*
-    }};
-
-    (@internal $root:expr, $name:ident, $child_of:ident, $children:ident, {}) => {{}};
-}
-
 fn insert(
     root: Query<(Entity, Read<ScanArmor>), Added<ScanArmor>>,
     mut constructor: ArmorConstructor,
@@ -305,17 +288,18 @@ fn insert(
     for (root_entity, armor_data) in root.iter() {
         let children = constructor.children;
         let name = constructor.name;
-        let armor_root: Vec<_> = children
+        children
             .iter_descendants(root_entity)
-            .filter(|child| {
-                name.get(*child)
-                    .is_ok_and(|name| name.contains("ARMOR_ROOT"))
+            .filter_map(|child| {
+                name.get(child)
+                    .ok()
+                    .filter(|name| name.contains("ARMOR_ROOT"))
+                    .map(|name| (child, name))
             })
-            .collect();
-        // 处理每个装甲子节点
-        for root in armor_root {
-            constructor.process_armor_root(root, armor_data);
-        }
+            .for_each(|(ent, name)| {
+                let id = ArmorIdentifier::parse(name.as_str()).unwrap();
+                constructor.process_armor_root(ent, id, armor_data);
+            })
     }
 }
 
