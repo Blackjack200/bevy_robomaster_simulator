@@ -2,9 +2,9 @@ use crate::capture::driver::{
     CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync,
 };
 use crate::dataset::prelude::DatasetSnapshotCreator;
+use crate::ros2::image::compress_image;
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
-use crate::util::image::compress_image;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::Exposure;
 use bevy::core_pipeline::tonemapping::Tonemapping;

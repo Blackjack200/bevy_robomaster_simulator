@@ -3,7 +3,10 @@ mod capture;
 mod dataset;
 mod handler;
 mod robomaster;
+
+#[cfg(feature = "ros2")]
 mod ros2;
+
 mod statistic;
 mod util;
 
@@ -13,7 +16,10 @@ use crate::robomaster::prelude::{
     ScanArmor, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
+
+#[cfg(feature = "ros2")]
 use crate::ros2::plugin::ROS2Plugin;
+
 use crate::{
     handler::{on_activate, on_hit},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
@@ -118,73 +124,83 @@ fn update_help_text(mut text: Query<&mut Text>) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window: Some(Window {
-                    present_mode: PresentMode::AutoVsync,
-                    fit_canvas_to_parent: true,
-                    ..default()
-                }),
+    let mut app = App::new();
+    app.add_plugins((
+        DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::AutoVsync,
+                fit_canvas_to_parent: true,
                 ..default()
             }),
-            PhysicsPlugins::default(),
-        ))
-        .add_plugins(ROS2Plugin::default())
-        .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
-        //.add_plugins(PhysicsDebugPlugin::default())
-        .add_plugins(RoboMasterPlugins)
-        .add_plugins((
-            FrameTimeDiagnosticsPlugin::default(),
-            LogDiagnosticsPlugin::default(),
-        ))
-        .add_plugins(DatasetPlugin)
-        .insert_resource(CameraMode(FollowingType::Robot))
-        .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
-        .insert_resource(SubstepCount(10))
-        .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
-            0.1,
-            TimerMode::Once,
-        ))))
-        .add_systems(Startup, (setup, setup_projectile))
-        .add_observer(setup_ground)
-        .add_observer(setup_vehicle)
-        .add_observer(setup_collision)
-        .add_observer(on_hit)
-        .add_observer(on_activate)
-        .add_systems(
-            Update,
-            (
-                update_help_text,
-                following_controls,
-                vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
-                freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
-                update_camera_follow
-                    .run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free)
-                    .before(RenderSystems::Render),
-                remote_vehicle_controls,
-                gimbal_controls,
-                remote_gimbal_controls,
-                screenshot_on_f2
-                    .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
-                screenshot_saving,
-            ),
-        )
-        .add_systems(
-            PostUpdate,
-            projectile_launch.after(TransformSystems::Propagate).run_if(
-                |time: Res<Time>, cooldown: Res<Cooldown>, keyboard: Res<ButtonInput<KeyCode>>| {
-                    let mut cooldown = cooldown.lock().unwrap();
-                    cooldown.tick(time.delta());
-                    if !cooldown.is_finished() {
-                        return false;
-                    }
-                    cooldown.reset();
-                    return keyboard.pressed(KeyCode::Space);
-                },
-            ),
-        )
-        .run();
+            ..default()
+        }),
+        PhysicsPlugins::default(),
+    ))
+    .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
+    //.add_plugins(PhysicsDebugPlugin::default())
+    .add_plugins(RoboMasterPlugins)
+    .add_plugins((
+        FrameTimeDiagnosticsPlugin::default(),
+        LogDiagnosticsPlugin::default(),
+    ))
+    .add_plugins(DatasetPlugin)
+    .insert_resource(CameraMode(FollowingType::Robot))
+    .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
+    .insert_resource(SubstepCount(10))
+    .insert_resource(Cooldown(Mutex::new(Timer::from_seconds(
+        0.1,
+        TimerMode::Once,
+    ))))
+    .add_systems(Startup, (setup, setup_projectile))
+    .add_observer(setup_ground)
+    .add_observer(setup_vehicle)
+    .add_observer(setup_collision)
+    .add_observer(on_hit)
+    .add_observer(on_activate)
+    .add_systems(
+        Update,
+        (
+            update_help_text,
+            following_controls,
+            vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
+            freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
+            update_camera_follow
+                .run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free)
+                .before(RenderSystems::Render),
+            remote_vehicle_controls,
+            gimbal_controls,
+            remote_gimbal_controls,
+            screenshot_on_f2
+                .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
+            screenshot_saving,
+        ),
+    )
+    .add_systems(
+        PostUpdate,
+        projectile_launch.after(TransformSystems::Propagate).run_if(
+            |time: Res<Time>, cooldown: Res<Cooldown>, keyboard: Res<ButtonInput<KeyCode>>| {
+                let mut cooldown = cooldown.lock().unwrap();
+                cooldown.tick(time.delta());
+                if !cooldown.is_finished() {
+                    return false;
+                }
+                cooldown.reset();
+                return keyboard.pressed(KeyCode::Space);
+            },
+        ),
+    );
+
+    #[cfg(feature = "ros2")]
+    {
+        app.add_plugins(ROS2Plugin::default());
+        info!("ROS2 integration enabled");
+    }
+    #[cfg(not(feature = "ros2"))]
+    {
+        info!("ROS2 integration disabled");
+    }
+
+    app.run();
 }
 
 #[derive(Component, Deref, DerefMut)]
@@ -318,7 +334,7 @@ fn setup(
         Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
     ));
 
-    commands.spawn((
+    let mut _ent = commands.spawn((
         Camera3d::default(),
         Camera::default(),
         PrimaryEguiContext,
@@ -335,8 +351,9 @@ fn setup(
         MainCamera {
             follow_offset: Vec3::new(0.0, 3.0, 2.0),
         },
-        ros2::plugin::MainCamera,
     ));
+    #[cfg(feature = "ros2")]
+    _ent.insert(ros2::plugin::MainCamera);
 }
 
 fn setup_ground(

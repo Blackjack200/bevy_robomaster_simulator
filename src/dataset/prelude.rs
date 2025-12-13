@@ -1,10 +1,10 @@
+use crate::MainCamera;
 use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{
     ArmorLabel, ArmorOwned, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
 };
-use crate::ros2::capture::CaptureCamera;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::render::{Extract, RenderApp, RenderSystems};
@@ -170,7 +170,7 @@ fn capture(
     root_data: Extract<Query<(Entity, &ArmorOwned, &ArmorRoot)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
-    camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
+    camera: Extract<Single<(&Projection, &GlobalTransform), With<MainCamera>>>,
     mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
     armor_r: Res<Data>,
