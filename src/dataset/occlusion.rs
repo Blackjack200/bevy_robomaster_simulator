@@ -1,5 +1,5 @@
 use crate::Controlled;
-use crate::robomaster::prelude::{Armor, ArmorComponentType, Side};
+use crate::robomaster::prelude::{ArmorOwned, Side};
 use bevy::{
     ecs::system::{SystemParam, lifetimeless::Read},
     prelude::*,
@@ -8,7 +8,7 @@ use bevy::{
 #[derive(SystemParam)]
 pub struct Occlusion<'w, 's> {
     child_of: Query<'w, 's, Read<ChildOf>>,
-    armor: Query<'w, 's, Read<Armor>>,
+    armor: Query<'w, 's, Read<ArmorOwned>>,
     names: Query<'w, 's, Read<Name>>,
     controlled: Query<'w, 's, Entity, With<Controlled>>,
     global_transforms: Query<'w, 's, Read<GlobalTransform>>,
@@ -56,11 +56,12 @@ impl<'w, 's> Occlusion<'w, 's> {
                             if parent.0.identifier != ident {
                                 return true;
                             }
-                            match parent.0.component_type {
-                                ArmorComponentType::LightBar(ref s) => s != side,
-                                ArmorComponentType::Vertex(ref s) => s != side,
-                                _ => true,
-                            }
+                            //match parent.0.component_type {
+                            //    ArmorComponentType::LightBar(ref s) => s != side,
+                            //    ArmorComponentType::Vertex(ref s) => s != side,
+                            //  _ => true,
+                            // }
+                            true
                         })
                     }) {
                         return true;
@@ -72,9 +73,8 @@ impl<'w, 's> Occlusion<'w, 's> {
         );
         for &(e, ref hit) in hits {
             if self.child_of.iter_ancestors(e).any(|ancestor| {
-                self.armor
-                    .get(ancestor)
-                    .is_ok_and(|x| matches!(x.0.component_type, ArmorComponentType::LightBar(_)))
+                self.armor.get(ancestor).is_ok_and(|x| true)
+                //  .is_ok_and(|x| matches!(x.0.component_type, ArmorComponentType::LightBar(_)))
             }) {
                 println!(
                     "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",

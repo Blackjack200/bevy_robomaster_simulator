@@ -1,14 +1,16 @@
-use crate::entity_root;
+use crate::query;
 use crate::robomaster::prelude::{ArmorLabel, ArmorType, MarkerData, Team, extract_markers};
+use crate::util::entity_query::HierarchyQuery;
 use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
 use bevy::app::App;
 use bevy::ecs::system::SystemParam;
 use bevy::ecs::system::lifetimeless::Read;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::{
-    Added, Assets, ChildOf, Children, Commands, Component, Entity, Mesh, Mesh3d, Name, Plugin,
-    Query, Res, Update, Vec3, Visibility, With, error, info,
+    Added, Assets, ChildOf, Children, Commands, Component, Deref, DerefMut, Entity, Mesh, Mesh3d,
+    Name, Plugin, Query, Res, Update, Vec3, Visibility, With, info,
 };
+use std::collections::HashMap;
 
 #[derive(Component)]
 pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
@@ -17,58 +19,21 @@ pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
 pub struct VertexData(pub Side, pub Vec<Vec3>);
 
 #[derive(Component, Clone)]
-pub struct Armor(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
+pub struct ArmorOwned(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
+
+#[derive(Component, Clone, Deref, DerefMut)]
+pub struct ArmorSticker(HashMap<ArmorLabel, Entity>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Side {
     Left,
     Right,
-    Unknown(String),
-}
-
-impl<T: ToString> From<T> for Side {
-    fn from(value: T) -> Self {
-        let str = value.to_string();
-        match str.to_lowercase().as_str() {
-            "left" | "l" => Side::Left,
-            "right" | "r" => Side::Right,
-            _ => Side::Unknown(str),
-        }
-    }
-}
-
-/// 装甲组件类型枚举
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ArmorComponentType {
-    Root,            // 根实体
-    Character,       // 字符标识
-    LightBar(Side),  // 灯条
-    Marker,          // 标记点
-    Vertex(Side),    // 顶点数据
-    Collider,        // 碰撞体（基础装甲）
-    Unknown(String), // 未知类型
-}
-
-impl ArmorComponentType {
-    fn from_name_parts(parts: Vec<&str>) -> Self {
-        if parts.is_empty() {
-            return Self::Collider;
-        }
-        match parts[0] {
-            "ROOT" => Self::Root,
-            "C" => Self::Character,
-            "L" => Self::LightBar(parts.get(1).unwrap_or(&"unknown").into()),
-            "MARKER" => Self::Marker,
-            "VERTEX" => Self::Vertex(parts.get(1).unwrap_or(&"unknown").into()),
-            other => Self::Unknown(other.to_string()),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArmorIdentifier {
     pub identifier: String,
-    pub component_type: ArmorComponentType,
+    pub component_type: Vec<String>,
 }
 
 impl ArmorIdentifier {
@@ -77,15 +42,14 @@ impl ArmorIdentifier {
         let pos = name.find("ARMOR")?;
         let identifier = name[..pos].to_string();
         let armor_parts = &name[pos..];
-        let mut parts: Vec<&str> = armor_parts.split('_').collect();
-        if parts.first() != Some(&"ARMOR") {
+        let mut parts: Vec<String> = armor_parts.split('_').map(ToString::to_string).collect();
+        if parts.first().map(|v| v.as_ref()) != Some("ARMOR") {
             return None;
         }
         parts.remove(0);
-        let component_type = ArmorComponentType::from_name_parts(parts);
         Some(Self {
             identifier,
-            component_type,
+            component_type: parts,
         })
     }
 }
@@ -99,10 +63,46 @@ pub struct ArmorConstructor<'w, 's> {
     mesh_query: Query<'w, 's, Read<Mesh3d>>,
     mesh_assets: Res<'w, Assets<Mesh>>,
 }
-#[derive(Component)]
+
+#[derive(Component, Clone)]
 pub struct ArmorRoot {
-    pub marker: Entity,
-    pub vertices: Vec<Entity>,
+    marker: Entity,
+    sticker: ArmorSticker,
+    lights: [Entity; 2],
+    vertices: [Entity; 2],
+}
+
+macro_rules! impl_side {
+    ($method_name:ident, $field:ident) => {
+        #[inline]
+        #[must_use]
+        pub fn $method_name(&self, side: Side) -> Entity {
+            self.$field[match side {
+                Side::Left => 0usize,
+                Side::Right => 1usize,
+            }]
+        }
+    };
+}
+
+impl ArmorRoot {
+    impl_side!(light, lights);
+    impl_side!(vertex, vertices);
+
+    #[inline]
+    #[must_use]
+    pub fn marker(&self) -> Entity {
+        self.marker
+    }
+
+    pub fn set_sticker(&self, label: ArmorLabel, mut commands: Commands) {
+        for (k, entity) in self.sticker.iter() {
+            commands.entity(*entity).insert(match *k == label {
+                true => Visibility::Visible,
+                false => Visibility::Hidden,
+            });
+        }
+    }
 }
 
 impl ArmorConstructor<'_, '_> {
@@ -157,51 +157,65 @@ impl ArmorConstructor<'_, '_> {
         Some(vertices)
     }
 
-    fn process_collider(&mut self, entity: Entity) {
-        self.commands
-            .entity(entity)
-            .insert(ColliderConstructorHierarchy::new(
-                ColliderConstructor::TrimeshFromMeshWithConfig(
+    fn process_armor_root(
+        &mut self,
+        root: Entity,
+        info: ArmorIdentifier,
+        armor_data: &ScanArmor,
+    ) -> Option<ArmorRoot> {
+        let query = HierarchyQuery::new(self.child_of, self.children, self.name);
+        let root_query = query.of(root);
+        {
+            self.commands.entity(query!(root_query, .."ARMOR")?).insert(
+                ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
                     TrimeshFlags::MERGE_DUPLICATE_VERTICES,
-                ),
-            ));
-    }
-
-    fn process_armor_root(&mut self, root: Entity, id: ArmorIdentifier, armor_data: &ScanArmor) {
-        entity_root! {
-            super self.child_of => self.children;
-            name self.name;
-            root {
-                match {
-                    :"ARMOR" => ident { };
-                    :"ARMOR_BASE" => ident { };
-                    :"ARMOR_L_L" => ident { };
-                    :"ARMOR_L_R" => ident { };
-                    :"ARMOR_L_L_RED" => ident { };
-                    :"ARMOR_L_R_RED" => ident { };
-                    :"ARMOR_MARKER" => ident { };
-                    :"ARMOR_VERTEX_L" => ident { };
-                    :"ARMOR_VERTEX_R" => ident { };
-                    :"ARMOR_C" => ident {
-                        match {
-                            :"B" => ident { };
-                            :"G" => ident { };
-                            :"O" => ident { };
-                            :"2" => ident { };
-                            :"3" => ident { };
-                            :"4" => ident { };
-                            :"5" => ident { };
-                        }
-                    };
-                }
-            }
+                )),
+            );
         }
-        let name = self.name.get(root).unwrap();
-        let Some(info) = ArmorIdentifier::parse(name) else {
-            info!("Failed to parse armor name: {}", name);
-            return;
+        //let _base = query!(root_query, .."BASE")?;
+        let lights = [
+            [query!(root_query, .."L_L")?, query!(root_query, .."L_R")?],
+            [
+                query!(root_query, .."L_L_RED")?,
+                query!(root_query, .."L_R_RED")?,
+            ],
+        ];
+
+        let (lights, hide) = match armor_data.0 {
+            Team::Red => (lights[1], lights[0]),
+            Team::Blue => (lights[1], lights[0]),
         };
-        self.commands.entity(root).insert(Armor(
+        for hide in hide {
+            self.commands.entity(hide).despawn();
+        }
+        let marker = query!(root_query, .."MARKER")?;
+        self.process_marker(marker, &info, armor_data)?;
+
+        let vertex = [
+            (Side::Left, query!(root_query, .."VERTEX_L")?),
+            (Side::Right, query!(root_query, .."VERTEX_R")?),
+        ];
+        let vertices = vertex.map(|(side, vertex)| {
+            let v = self.process_vertex(vertex, &info, armor_data).unwrap();
+            self.commands
+                .entity(vertex)
+                .insert((VertexData(side, v.clone()), Visibility::Hidden));
+            vertex
+        });
+        let sticker = ArmorSticker({
+            let c_query = query!(root_query, .."_C" ref);
+            HashMap::from([
+                (ArmorLabel::BaseSmall, query!(c_query, .."B")?),
+                (ArmorLabel::EngineerG, query!(c_query, .."G")?),
+                (ArmorLabel::OutpostZeo, query!(c_query, .."O")?),
+                (ArmorLabel::InfantryTwo, query!(c_query, .."2")?),
+                (ArmorLabel::InfantryThree, query!(c_query, .."3")?),
+                (ArmorLabel::InfantryFour, query!(c_query, .."4")?),
+                (ArmorLabel::LegacyFive, query!(c_query, .."5")?),
+            ])
+        });
+
+        self.commands.entity(root).insert(ArmorOwned(
             info.clone(),
             armor_data.0,
             armor_data.1,
@@ -212,8 +226,6 @@ impl ArmorConstructor<'_, '_> {
         let children = self.children;
 
         let name = self.name;
-        let mut vertices = vec![];
-        let mut marker = None;
         children
             .iter_descendants(root)
             .filter_map(|v| name.get(v).ok().map(|name| (name, v)))
@@ -222,49 +234,22 @@ impl ArmorConstructor<'_, '_> {
                     info!("Failed to parse armor name: {}", name);
                     return;
                 };
-                self.commands.entity(armor_elem).insert(Armor(
+                self.commands.entity(armor_elem).insert(ArmorOwned(
                     info.clone(),
                     armor_data.0,
                     armor_data.1,
                     armor_data.2,
                 ));
-                // 根据组件类型执行不同的处理
-                match info.component_type {
-                    ArmorComponentType::Character
-                    | ArmorComponentType::LightBar(_)
-                    | ArmorComponentType::Root => {
-                        // 忽略这些类型
-                    }
-                    ArmorComponentType::Marker => {
-                        let Some(_) = self.process_marker(armor_elem, &info, armor_data) else {
-                            return;
-                        };
-                        marker = Some(armor_elem);
-                    }
-                    ArmorComponentType::Vertex(ref side) => {
-                        let Some(v) = self.process_vertex(armor_elem, &info, armor_data) else {
-                            return;
-                        };
-                        self.commands
-                            .entity(armor_elem)
-                            .insert((VertexData(side.clone(), v.clone()), Visibility::Hidden));
-                        vertices.push(armor_elem);
-                    }
-                    ArmorComponentType::Collider => {
-                        self.process_collider(armor_elem);
-                    }
-                    ArmorComponentType::Unknown(ref type_name) => {
-                        info!("Unknown armor component type: {} in {}", type_name, name);
-                    }
-                }
             });
-        let Some(marker) = marker else {
-            error!("{} has no marker data", root);
-            return;
+
+        let ar = ArmorRoot {
+            marker,
+            sticker,
+            lights,
+            vertices,
         };
-        self.commands
-            .entity(root)
-            .insert(ArmorRoot { marker, vertices });
+        self.commands.entity(root).insert(ar.clone());
+        Some(ar)
     }
 }
 

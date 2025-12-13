@@ -2411,6 +2411,7 @@ dependencies = [
  "bevy-inspector-egui",
  "crossbeam-channel",
  "egui",
+ "exact",
  "futures",
  "image",
  "r2r",
@@ -2720,6 +2721,10 @@ dependencies = [
  "event-listener",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "exact"
+version = "0.1.0"
 
 [[package]]
 name = "exr"

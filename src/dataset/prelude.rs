@@ -2,7 +2,7 @@ use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, Sn
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{
-    Armor, ArmorLabel, ArmorRoot, ArmorType, MarkerData, Team, VertexData,
+    ArmorLabel, ArmorOwned, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
 };
 use crate::ros2::capture::CaptureCamera;
 use bevy::ecs::world::DeferredWorld;
@@ -167,7 +167,7 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 fn capture(
-    root_data: Extract<Query<(Entity, &Armor, &ArmorRoot)>>,
+    root_data: Extract<Query<(Entity, &ArmorOwned, &ArmorRoot)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
@@ -179,9 +179,7 @@ fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (vertex_entity, &Armor(ref ident, team, typ, label), ArmorRoot { marker, vertices }) in
-        root_data.iter()
-    {
+    for (vertex_entity, &ArmorOwned(ref ident, team, typ, label), root) in root_data.iter() {
         let all_in_frustum = |global_transform: &GlobalTransform,
                               unmapped: &[Vec3]|
          -> Option<Vec<(Vec3, (u32, u32))>> {
@@ -193,22 +191,24 @@ fn capture(
             }
             Some(mapped)
         };
+        let marker = root.marker();
+        let vertices = [root.vertex(Side::Left), root.vertex(Side::Right)];
         let mut vert = Vec::with_capacity(vertices.len());
         for vertex in vertices {
-            let (tf, VertexData(side, vertices)) = vertex_data.get(*vertex).unwrap();
+            let (tf, VertexData(side, vertices)) = vertex_data.get(vertex).unwrap();
             let Some(vertices) = all_in_frustum(tf, vertices.as_slice()) else {
                 continue;
             };
             vert.push((
                 side,
-                *vertex,
+                vertex,
                 vertices.into_iter().map(|v| v.0).collect::<Vec<_>>(),
             ));
         }
         if vert.len() != vertices.len() {
             continue;
         }
-        let (tf, MarkerData(markers)) = marker_data.get(*marker).unwrap();
+        let (tf, MarkerData(markers)) = marker_data.get(marker).unwrap();
         let Some(markers) = all_in_frustum(tf, markers) else {
             continue;
         };

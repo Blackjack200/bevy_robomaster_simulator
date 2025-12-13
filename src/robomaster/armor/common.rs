@@ -6,7 +6,7 @@ pub enum ArmorType {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ArmorLabel {
     /// G号标签 - ⚙️工程机器人专用
     EngineerG = 0,
@@ -24,4 +24,6 @@ pub enum ArmorLabel {
     BaseSmall = 6,
     /// Bb号标签 - 🏠基地大装甲模块
     BaseLarge = 7,
+
+    LegacyFive = 255,
 }
