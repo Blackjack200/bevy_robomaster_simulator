@@ -68,6 +68,7 @@ pub struct ArmorConstructor<'w, 's> {
 pub struct ArmorRoot {
     marker: Entity,
     sticker: ArmorSticker,
+    pub counter: usize,
     lights: [Entity; 2],
     vertices: [Entity; 2],
 }
@@ -256,6 +257,7 @@ impl ArmorConstructor<'_, '_> {
         let ar = ArmorRoot {
             marker,
             sticker,
+            counter: ArmorLabel::index_from_small(armor_data.2),
             lights,
             vertices,
         };

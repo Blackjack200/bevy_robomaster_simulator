@@ -12,8 +12,8 @@ mod util;
 
 use crate::dataset::prelude::DatasetPlugin;
 use crate::robomaster::prelude::{
-    INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, Projectile, RoboMasterPlugins, RobotConfig,
-    ScanArmor, Team,
+    ArmorLabel, ArmorOwned, ArmorRoot, INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot,
+    Projectile, RoboMasterPlugins, RobotConfig, ScanArmor, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 
@@ -180,6 +180,7 @@ fn main() {
             remote_vehicle_controls,
             gimbal_controls,
             remote_gimbal_controls,
+            change_appearance,
             screenshot_on_f2
                 .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
             screenshot_saving,
@@ -228,6 +229,9 @@ struct PreciousCollision(
 
 #[derive(Component)]
 struct ScanOutpost;
+
+#[derive(Component)]
+struct SlapperInfantry;
 
 fn setup(
     mut commands: Commands,
@@ -342,6 +346,7 @@ fn setup(
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
         Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
+        SlapperInfantry,
     ));
 
     let mut _ent = commands.spawn((
@@ -407,6 +412,10 @@ fn setup_vehicle(
     if is_local {
         children.iter_descendants(root).for_each(|e| {
             commands.entity(e).insert(Controlled);
+        });
+    } else {
+        children.iter_descendants(root).for_each(|e| {
+            commands.entity(e).insert(SlapperInfantry);
         });
     }
     commands.entity(root).insert((
@@ -507,6 +516,29 @@ fn setup_projectile(
 #[derive(Resource)]
 struct ProjectileSetting(Handle<Mesh>, Handle<StandardMaterial>);
 
+fn change_appearance(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    armor: Query<&mut ArmorRoot, With<SlapperInfantry>>,
+    owned: Query<&mut ArmorOwned, With<SlapperInfantry>>,
+) {
+    if keyboard.pressed(KeyCode::ShiftLeft) && keyboard.just_pressed(KeyCode::KeyC) {
+        let mut n_type = None;
+        for mut armor in armor {
+            let seq = ArmorLabel::sequence_small();
+            armor.counter += 1;
+            armor.counter %= seq.len();
+            let new_typ = seq[armor.counter];
+            n_type = Some(new_typ);
+            armor.set_sticker(new_typ, &mut commands);
+        }
+        if let Some(n_type) = n_type {
+            for mut own in owned {
+                own.3 = n_type;
+            }
+        }
+    }
+}
 fn projectile_launch(
     _asset_server: Res<AssetServer>,
     mut commands: Commands,
@@ -661,14 +693,17 @@ fn vehicle_controls(
 fn remote_vehicle_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    infantry: Single<(Forces, &Mass, &mut VehicleDynamic), (With<Infantry>, Without<Controlled>)>,
+    infantry: Single<
+        (Forces, &Mass, &mut VehicleDynamic),
+        (With<SlapperInfantry>, With<Infantry>, Without<Controlled>),
+    >,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
-        (Without<Controlled>, Without<InfantryChassis>),
+        (With<SlapperInfantry>, Without<InfantryChassis>),
     >,
     chassis: Single<
         (&mut Transform, &mut InfantryChassis),
-        (Without<Controlled>, Without<InfantryGimbal>),
+        (With<SlapperInfantry>, Without<InfantryGimbal>),
     >,
 ) {
     let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
@@ -720,7 +755,7 @@ fn remote_gimbal_controls(
     keyboard: Res<ButtonInput<KeyCode>>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
-        (Without<Controlled>, Without<InfantryChassis>),
+        (With<SlapperInfantry>, Without<InfantryChassis>),
     >,
 ) {
     let dt = time.delta_secs();
@@ -729,7 +764,9 @@ fn remote_gimbal_controls(
     (gimbal_data.local_yaw, gimbal_data.pitch, _) =
         gimbal_transform.rotation.to_euler(EulerRot::YXZ);
 
-    gimbal_data.local_yaw += input!(keyboard, KeyC, KeyB) * GIMBAL_ROTATION_SPEED * dt;
+    if !keyboard.pressed(KeyCode::ShiftLeft) {
+        gimbal_data.local_yaw += input!(keyboard, KeyC, KeyB) * GIMBAL_ROTATION_SPEED * dt;
+    }
     gimbal_data.pitch += input!(keyboard, KeyF, KeyV) * GIMBAL_ROTATION_SPEED * dt;
     gimbal_data.pitch = gimbal_data.pitch.clamp(-0.785, 0.785);
 

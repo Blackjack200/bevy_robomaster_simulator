@@ -27,3 +27,33 @@ pub enum ArmorLabel {
 
     LegacyFive = 255,
 }
+
+impl ArmorLabel {
+    pub fn sequence_small() -> &'static [ArmorLabel; 9] {
+        &[
+            ArmorLabel::EngineerG,
+            ArmorLabel::HeroOne,
+            ArmorLabel::InfantryTwo,
+            ArmorLabel::InfantryThree,
+            ArmorLabel::InfantryFour,
+            ArmorLabel::OutpostZeo,
+            ArmorLabel::BaseSmall,
+            ArmorLabel::BaseLarge,
+            ArmorLabel::LegacyFive,
+        ]
+    }
+
+    pub fn index_from_small(label: ArmorLabel) -> usize {
+        match label {
+            ArmorLabel::EngineerG => 0,
+            ArmorLabel::HeroOne => 1,
+            ArmorLabel::InfantryTwo => 2,
+            ArmorLabel::InfantryThree => 3,
+            ArmorLabel::InfantryFour => 4,
+            ArmorLabel::OutpostZeo => 5,
+            ArmorLabel::BaseSmall => 6,
+            ArmorLabel::BaseLarge => 8,
+            ArmorLabel::LegacyFive => 7,
+        }
+    }
+}
