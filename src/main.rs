@@ -19,7 +19,7 @@ use crate::robomaster::vehicle::movement::VehicleDynamic;
 
 #[cfg(feature = "ros2")]
 use crate::ros2::plugin::ROS2Plugin;
-
+#[cfg(feature = "ros2")]
 use crate::ros2::plugin::SubscribeAutoAim;
 use crate::{
     handler::{on_activate, on_hit},
@@ -121,9 +121,17 @@ fn spawn_text(commands: &mut Commands) {
     ));
 }
 
+#[cfg(feature = "ros2")]
 fn update_help_text(mut text: Query<&mut Text>, auto_aim: Res<SubscribeAutoAim>) {
     for mut text in text.iter_mut() {
         *text = create_help_text(auto_aim.load(Ordering::Acquire));
+    }
+}
+
+#[cfg(not(feature = "ros2"))]
+fn update_help_text(mut text: Query<&mut Text>) {
+    for mut text in text.iter_mut() {
+        *text = create_help_text(false);
     }
 }
 
