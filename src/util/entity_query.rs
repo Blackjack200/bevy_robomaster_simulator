@@ -7,16 +7,26 @@ use std::iter::{Empty, empty};
 
 #[macro_export]
 macro_rules! query {
-    ($query: expr, ..$ident:literal $($tt:tt)*) => {
-        $crate::query!(@internal $query.clone().suffix($ident), $($tt)*)
+    ($query: expr, $($tt:tt)*) => {
+        $crate::query!(@internal $query.clone(), $($tt)*)
     };
-    ($query: expr, $ident:literal.. $($tt:tt)*) => {
-        $crate::query!(@internal $query.clone().prefix($ident), $($tt)*)
+    (nocopy $query: expr, $($tt:tt)*) => {
+        $crate::query!(@internal $query, $($tt)*)
     };
-    ($query: expr, $ident:literal $($tt:tt)*) => {
-        $crate::query!(@internal $query.clone().exact($ident), $($tt)*)
+    (@internal $query: expr, ..$ident:literal $($tt:tt)*) => {
+        $crate::query!(@internal $query.suffix($ident) $($tt)*)
     };
-    (@internal $query: expr, ) => { $query.decay() };
+    (@internal $query: expr, $ident:literal.. $($tt:tt)*) => {
+        $crate::query!(@internal $query.prefix($ident) $($tt)*)
+    };
+    (@internal $query: expr, $ident:literal $($tt:tt)*) => {
+        $crate::query!(@internal $query.exact($ident) $($tt)*)
+    };
+    (@internal $query: expr, ... $($tt:tt)*) => {
+        $crate::query!(@internal $query.any() $($tt)*)
+    };
+    (@internal $query: expr) => { $query.one() };
+    (@internal $query: expr, ) => { $query.one() };
     (@internal $query: expr, ref) => { $query };
 }
 
@@ -68,16 +78,16 @@ where
 }
 
 macro_rules! impl_hierarchy {
-    ($method_name:ident,$method:ident $($prefix:tt)?) => {
+    ($v:vis $method_name:ident,$method:ident $($prefix:tt)*) => {
         #[must_use]
         #[inline]
-        pub fn $method_name<T: Into<&'q str>>(
+        $v fn $method_name<T: Into<&'q str>>(
             self,
             suffix: T,
         ) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
             match self {
                 Hierarchy::Prologue { lazy, param } => {
-                    let suffix = suffix.into();
+                    let _suffix = suffix.into();
                     let flatten = lazy
                         .filter_map(|current| {
                             param
@@ -89,8 +99,8 @@ macro_rules! impl_hierarchy {
                         .flatten()
                         .copied()
                         .filter(move |&child| {
-                            if let Ok(name) = param.name.get(child) {
-                                $($prefix)? name.as_ref().$method(suffix)
+                            if let Ok(_name) = param.name.get(child) {
+                                $($prefix)* _name.as_ref().$method(_suffix)
                             } else {
                                 false
                             }
@@ -107,13 +117,19 @@ macro_rules! impl_hierarchy {
 }
 
 impl<'q, 'w, 's, IterType: HierarchyIter> Hierarchy<'q, 'w, 's, IterType> {
-    impl_hierarchy!(suffix, ends_with);
-    impl_hierarchy!(prefix, starts_with);
-    impl_hierarchy!(exact, eq);
-    impl_hierarchy!(with, contains);
-    impl_hierarchy!(without, contains !);
+    impl_hierarchy!(pub suffix, ends_with);
+    impl_hierarchy!(pub prefix, starts_with);
+    impl_hierarchy!(pub exact, eq);
+    impl_hierarchy!(pub with, contains);
+    impl_hierarchy!(pub without, contains !);
+    // literally a hack lol
+    impl_hierarchy!(_any, eq return true;#[allow(unreachable_code)]);
 
-    pub fn decay(self) -> Option<Entity> {
+    pub fn any(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
+        self._any("")
+    }
+
+    pub fn one(self) -> Option<Entity> {
         match self {
             Hierarchy::Prologue { lazy, .. } => lazy.exact::<1>().ok().into_single(),
             Hierarchy::Epilogue => None,

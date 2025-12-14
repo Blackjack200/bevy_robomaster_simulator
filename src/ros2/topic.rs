@@ -4,7 +4,7 @@ use bevy::tasks::futures_lite::StreamExt;
 use bevy::tasks::futures_lite::future::block_on;
 use futures::SinkExt;
 use futures::channel::mpsc;
-use futures::channel::mpsc::{Receiver, Sender, TryRecvError};
+use futures::channel::mpsc::{Sender, TryRecvError};
 use r2r::geometry_msgs::msg::PoseStamped;
 use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image};
@@ -35,41 +35,36 @@ impl<T: RosTopic> TopicPublisher<T> {
 
 #[derive(Resource)]
 pub struct TopicSubscriber<T: RosTopic> {
-    receiver: Mutex<Receiver<T::T>>,
+    receiver: Arc<Mutex<Option<T::T>>>,
 }
 
 impl<T: RosTopic> TopicSubscriber<T> {
-    pub(super) fn new(receiver: Receiver<T::T>) -> Self {
+    pub(super) fn new() -> Self {
         TopicSubscriber {
-            receiver: Mutex::new(receiver),
+            receiver: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn try_recv(&self) -> Result<Option<T::T>, TryRecvError> {
-        self.receiver.lock().unwrap().try_next()
-    }
-
-    pub fn recv(&self) -> Option<T::T> {
-        block_on(self.receiver.lock().unwrap().next())
+        Ok(self.receiver.lock().unwrap().take())
     }
 }
 
 fn subscriber<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicSubscriber<T> {
-    let (mut sender, receiver) = mpsc::channel(1024);
     let mut subscriber = node.subscribe::<T::T>(T::TOPIC, T::QOS).unwrap();
+    let sub = TopicSubscriber::new();
+    let mutex = sub.receiver.clone();
     std::thread::spawn(move || {
         while !signal.load(std::sync::atomic::Ordering::Acquire) {
             match block_on(subscriber.next()) {
                 Some(msg) => {
-                    let _ = block_on(sender.send(msg));
+                    mutex.lock().unwrap().replace(msg);
                 }
-                None => break,
+                None => continue,
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     });
-
-    TopicSubscriber::new(receiver)
+    sub
 }
 
 fn publisher<T: RosTopic>(node: &mut Node, signal: Arc<AtomicBool>) -> TopicPublisher<T> {

@@ -12,7 +12,7 @@ use bevy::prelude::{
 };
 use std::collections::HashMap;
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
 
 #[derive(Component, Clone, Debug)]
@@ -95,7 +95,7 @@ impl ArmorRoot {
         self.marker
     }
 
-    pub fn set_sticker(&self, label: ArmorLabel, mut commands: Commands) {
+    pub fn set_sticker(&self, label: ArmorLabel, commands: &mut Commands) {
         for (k, entity) in self.sticker.iter() {
             commands.entity(*entity).insert(match *k == label {
                 true => Visibility::Visible,
@@ -172,6 +172,26 @@ impl ArmorConstructor<'_, '_> {
                 )),
             );
         }
+        {
+            let children = self.children;
+
+            let name = self.name;
+            children
+                .iter_descendants(root)
+                .filter_map(|v| name.get(v).ok().map(|name| (name, v)))
+                .for_each(|(name, armor_elem)| {
+                    let Some(info) = ArmorIdentifier::parse(name) else {
+                        info!("Failed to parse armor name: {}", name);
+                        return;
+                    };
+                    self.commands.entity(armor_elem).insert(ArmorOwned(
+                        info.clone(),
+                        armor_data.0,
+                        armor_data.1,
+                        armor_data.2,
+                    ));
+                });
+        }
         //let _base = query!(root_query, .."BASE")?;
         let lights = [
             [query!(root_query, .."L_L")?, query!(root_query, .."L_R")?],
@@ -180,30 +200,41 @@ impl ArmorConstructor<'_, '_> {
                 query!(root_query, .."L_R_RED")?,
             ],
         ];
-
         let (lights, hide) = match armor_data.0 {
             Team::Red => (lights[1], lights[0]),
-            Team::Blue => (lights[1], lights[0]),
+            Team::Blue => (lights[0], lights[1]),
         };
         for hide in hide {
             self.commands.entity(hide).despawn();
         }
-        let marker = query!(root_query, .."MARKER")?;
+        let marker = query!(root_query, .."MARKER", ...)?;
         self.process_marker(marker, &info, armor_data)?;
 
         let vertex = [
             (Side::Left, query!(root_query, .."VERTEX_L")?),
             (Side::Right, query!(root_query, .."VERTEX_R")?),
         ];
+        self.commands.entity(vertex[0].1).insert(Visibility::Hidden);
+        self.commands.entity(vertex[1].1).insert(Visibility::Hidden);
+
         let vertices = vertex.map(|(side, vertex)| {
-            let v = self.process_vertex(vertex, &info, armor_data).unwrap();
+            let v = self
+                .process_vertex(
+                    query!(nocopy query.of(vertex), ...).unwrap(),
+                    &info,
+                    armor_data,
+                )
+                .unwrap();
             self.commands
                 .entity(vertex)
                 .insert((VertexData(side, v.clone()), Visibility::Hidden));
             vertex
         });
         let sticker = ArmorSticker({
-            let c_query = query!(root_query, .."_C" ref);
+            let c_query = query!(root_query, .."_C", ref);
+            c_query.clone().any().into_iter().for_each(|e| {
+                self.commands.entity(e).insert(Visibility::Hidden);
+            });
             HashMap::from([
                 (ArmorLabel::BaseSmall, query!(c_query, .."B")?),
                 (ArmorLabel::EngineerG, query!(c_query, .."G")?),
@@ -222,32 +253,13 @@ impl ArmorConstructor<'_, '_> {
             armor_data.2,
         ));
 
-        // 为所有子节点添加 Armor 组件
-        let children = self.children;
-
-        let name = self.name;
-        children
-            .iter_descendants(root)
-            .filter_map(|v| name.get(v).ok().map(|name| (name, v)))
-            .for_each(|(name, armor_elem)| {
-                let Some(info) = ArmorIdentifier::parse(name) else {
-                    info!("Failed to parse armor name: {}", name);
-                    return;
-                };
-                self.commands.entity(armor_elem).insert(ArmorOwned(
-                    info.clone(),
-                    armor_data.0,
-                    armor_data.1,
-                    armor_data.2,
-                ));
-            });
-
         let ar = ArmorRoot {
             marker,
             sticker,
             lights,
             vertices,
         };
+        ar.set_sticker(armor_data.2, &mut self.commands);
         self.commands.entity(root).insert(ar.clone());
         Some(ar)
     }

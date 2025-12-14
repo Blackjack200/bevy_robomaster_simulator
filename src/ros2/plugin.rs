@@ -9,7 +9,6 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
-use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::collections::HashMap;
 use std::f32::consts::PI;
