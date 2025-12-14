@@ -54,21 +54,19 @@ impl ActivatingState {
     }
 
     pub fn on_hit(&mut self, target_index: usize) -> Option<RuneAction> {
-        let Some(action) = self.try_activate(target_index) else {
-            return None;
-        };
+        let action = self.try_activate(target_index)?;
         if self.mode != RuneMode::Large {
-            return Some(action.into());
+            return Some(action);
         }
         if !matches!(action, RuneAction::PartialActivate(_)) {
-            return Some(action.into());
+            return Some(action);
         }
         // 重设20秒超时
         self.timeout.reset();
         // 大机关逻辑：规则要求命中任意一个靶后启动1秒二次窗口
         // 命中第一个靶后启动1秒二次命中窗口
         self.next_round = Timer::from_seconds(LARGE_SECONDARY_TIMEOUT, TimerMode::Once);
-        Some(action.into())
+        Some(action)
     }
 
     pub fn tick(&mut self, delta: Duration) -> Option<Vec<RuneAction>> {

@@ -73,7 +73,7 @@ impl<'w, 's> Occlusion<'w, 's> {
         );
         for &(e, ref hit) in hits {
             if self.child_of.iter_ancestors(e).any(|ancestor| {
-                self.armor.get(ancestor).is_ok_and(|x| true)
+                self.armor.get(ancestor).is_ok_and(|_x| true)
                 //  .is_ok_and(|x| matches!(x.0.component_type, ArmorComponentType::LightBar(_)))
             }) {
                 println!(
@@ -115,8 +115,8 @@ impl<'w, 's> Occlusion<'w, 's> {
     pub fn visible(
         &mut self,
         camera_pos: Vec3,
-        forward: Vec3,
-        markers: &[(Vec3, (u32, u32)); 4],
+        _forward: Vec3,
+        _markers: &[(Vec3, (u32, u32)); 4],
         ident: &str,
         armor_entity: Entity,
         vertices: &[(&Side, Entity, Vec<Vec3>)],

@@ -10,3 +10,5 @@ screenshot-*.png
 /install/
 /log/
 /build/
+build.sh
+env.sh

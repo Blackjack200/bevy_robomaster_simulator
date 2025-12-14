@@ -32,7 +32,6 @@ fn setup_outpost(
                     .commands
                     .entity(e)
                     .insert(OutpostRotator::new(clockwise));
-                return;
             }
         })
     }

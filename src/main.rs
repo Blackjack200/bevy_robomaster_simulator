@@ -26,7 +26,6 @@ use crate::{
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
 };
 use avian3d::prelude::*;
-use bevy::asset::ErasedAssetLoader;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::render::RenderSystems;
@@ -40,10 +39,9 @@ use bevy::{
 };
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
 
 #[derive(Component)]
 struct MainCamera {
@@ -124,7 +122,7 @@ fn spawn_text(commands: &mut Commands) {
 #[cfg(feature = "ros2")]
 fn update_help_text(mut text: Query<&mut Text>, auto_aim: Res<SubscribeAutoAim>) {
     for mut text in text.iter_mut() {
-        *text = create_help_text(auto_aim.load(Ordering::Acquire));
+        *text = create_help_text(auto_aim.load(std::sync::atomic::Ordering::Acquire));
     }
 }
 
@@ -197,7 +195,7 @@ fn main() {
                     return false;
                 }
                 cooldown.reset();
-                return keyboard.pressed(KeyCode::Space);
+                keyboard.pressed(KeyCode::Space)
             },
         ),
     );
