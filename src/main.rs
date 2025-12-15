@@ -502,7 +502,7 @@ fn setup_projectile(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.insert_resource(ProjectileSetting(
-        meshes.add(Sphere::new(44.5 * 0.001 / 2.0)),
+        meshes.add(Sphere::new(17.0 * 0.001 / 2.0)),
         materials.add(StandardMaterial {
             base_color: Color::srgba(0.132866, 1.0, 0.132869, 0.55),
             emissive: LinearRgba::new(0.132866, 1.0, 0.132869, 0.55),
@@ -563,8 +563,8 @@ fn projectile_launch(
     let vel = infantry.1.0 + direction * 25.0;
     commands.spawn((
         RigidBody::Dynamic,
-        Collider::sphere(44.5 * 0.001 / 2.0),
-        Mass(44.5 * 0.001),
+        Collider::sphere(17.0 * 0.001 / 2.0),
+        Mass(17.0 * 0.001),
         Friction::new(1.1),
         Restitution::ZERO,
         LinearDamping(0.05),
