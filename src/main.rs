@@ -94,6 +94,11 @@ enum GameLayer {
 #[derive(Resource, Deref, DerefMut)]
 struct Cooldown(Mutex<Timer>);
 
+#[derive(Component, Deref, DerefMut)]
+struct ProjectileLifetime(Timer);
+
+const PROJECTILE_LIFETIME_SECS: f32 = 5.0;
+
 /// Creates help text at the bottom of the screen.
 fn create_help_text(auto_aim: bool) -> Text {
     format!(
@@ -181,6 +186,7 @@ fn main() {
             gimbal_controls,
             remote_gimbal_controls,
             change_appearance,
+            cleanup_projectiles,
             screenshot_on_f2
                 .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
             screenshot_saving,
@@ -586,8 +592,25 @@ fn projectile_launch(
             infantry.0.translation + (gimbal.0.rotation() * launch_offset.translation),
         ),
         //AudioPlayer::new(asset_server.load("projectile_launch.ogg")),
+        ProjectileLifetime(Timer::from_seconds(
+            PROJECTILE_LIFETIME_SECS,
+            TimerMode::Once,
+        )),
         Projectile,
     ));
+}
+
+fn cleanup_projectiles(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut projectiles: Query<(Entity, &mut ProjectileLifetime)>,
+) {
+    for (entity, mut lifetime) in &mut projectiles {
+        lifetime.tick(time.delta());
+        if lifetime.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 fn setup_collision(
