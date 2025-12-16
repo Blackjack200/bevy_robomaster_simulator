@@ -1,5 +1,5 @@
 use crate::Controlled;
-use crate::robomaster::prelude::{ArmorOwned, Side};
+use crate::robomaster::prelude::{ArmorOwned, LightStrip, Side, VertexData};
 use bevy::{
     ecs::system::{SystemParam, lifetimeless::Read},
     prelude::*,
@@ -9,6 +9,8 @@ use bevy::{
 pub struct Occlusion<'w, 's> {
     child_of: Query<'w, 's, Read<ChildOf>>,
     armor: Query<'w, 's, Read<ArmorOwned>>,
+    vertex: Query<'w, 's, Read<VertexData>>,
+    light_strip: Query<'w, 's, Read<LightStrip>>,
     names: Query<'w, 's, Read<Name>>,
     controlled: Query<'w, 's, Entity, With<Controlled>>,
     global_transforms: Query<'w, 's, Read<GlobalTransform>>,
@@ -51,20 +53,20 @@ impl<'w, 's> Occlusion<'w, 's> {
                     {
                         return false;
                     }
-                    if self.child_of.iter_ancestors(e).any(|parent| {
-                        self.armor.get(parent).into_iter().any(|parent| {
-                            if parent.0.identifier != ident {
-                                return true;
-                            }
-                            //match parent.0.component_type {
-                            //    ArmorComponentType::LightBar(ref s) => s != side,
-                            //    ArmorComponentType::Vertex(ref s) => s != side,
-                            //  _ => true,
-                            // }
-                            true
-                        })
-                    }) {
-                        return true;
+                    let is_light_strip = self.child_of.iter_ancestors(e).any(|parent| {
+                        let Ok(parent) = self.light_strip.get(parent) else {
+                            return false;
+                        };
+                        parent.0 != *side
+                    });
+                    let is_vertex = self.child_of.iter_ancestors(e).any(|parent| {
+                        let Ok(parent) = self.vertex.get(parent) else {
+                            return false;
+                        };
+                        parent.0 != *side
+                    });
+                    if is_light_strip || is_vertex {
+                        return false;
                     }
                     true
                 },
@@ -73,8 +75,10 @@ impl<'w, 's> Occlusion<'w, 's> {
         );
         for &(e, ref hit) in hits {
             if self.child_of.iter_ancestors(e).any(|ancestor| {
-                self.armor.get(ancestor).is_ok_and(|_x| true)
-                //  .is_ok_and(|x| matches!(x.0.component_type, ArmorComponentType::LightBar(_)))
+                let Ok(ancestor) = self.light_strip.get(ancestor) else {
+                    return false;
+                };
+                ancestor.0 != *side
             }) {
                 println!(
                     "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",

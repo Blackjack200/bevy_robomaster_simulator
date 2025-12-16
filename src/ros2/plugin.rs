@@ -1,7 +1,9 @@
 use crate::capture::driver::CaptureConfig;
-use crate::robomaster::prelude::{PowerRune, RuneIndex};
+use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
+use crate::ros2::prelude::transform;
 use crate::ros2::topic::*;
+use crate::util::entity_query::HierarchyQuery;
 use crate::{
     Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, arc_mutex, projectile_launch,
 };
@@ -9,6 +11,9 @@ use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
+use r2r::geometry_msgs::msg::{Point, Pose, Vector3};
+use r2r::std_msgs::msg::ColorRGBA;
+use r2r::visualization_msgs::msg::Marker;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -117,6 +122,10 @@ fn capture_rune(
     odom_pose_pub: ResMut<TopicPublisher<OdomPoseTopic>>,
     muzzle_pose_pub: ResMut<TopicPublisher<MuzzlePoseTopic>>,
     camera_pose_pub: ResMut<TopicPublisher<CameraPoseTopic>>,
+    center: Query<(Entity, &GlobalTransform)>,
+    qq: HierarchyQuery,
+    armor: Query<(Entity, &GlobalTransform, &ArmorRoot)>,
+    marker_pub: ResMut<TopicPublisher<OutpostMarkerTopic>>,
 ) {
     let cam_transform = camera.into_inner();
     let gimbal = gimbal.into_inner();
@@ -165,8 +174,69 @@ fn capture_rune(
                     pub name as (tf.translation, tf.rotation);
                 }
             }
+            for (entity, transform, armor) in armor {
+                let name = format!("armor_{:?}", armor.id).to_string().to_lowercase();
+                let tf = center.get(qq.of(entity).suffix("CENTER").any().one().unwrap()).unwrap().1.compute_transform();
+                pub name as (tf.translation, tf.rotation);
+            }
         }
     };
+
+    let stamp = Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
+    for (entity, tf, armor) in armor {
+        let name = format!("armor_{:?}", armor.id).to_string().to_lowercase();
+        let mut tff = center
+            .get(qq.of(entity).suffix("CENTER").any().one().unwrap())
+            .unwrap()
+            .1
+            .compute_transform();
+        tff.rotation = tf.rotation() * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, -PI / 2.0);
+        let tf = transform(tff);
+        marker_pub.publish(Marker {
+            header: Header {
+                stamp: stamp.clone(),
+                frame_id: "map".to_string(),
+            }
+            .clone(),
+            ns: "armors".to_string(),
+            id: armor.id as i32,
+            type_: Marker::CUBE as i32,
+            action: Marker::ADD as i32,
+            pose: Pose {
+                position: Point {
+                    x: tf.translation.x,
+                    y: tf.translation.y,
+                    z: tf.translation.z,
+                },
+                orientation: tf.rotation,
+            },
+            scale: Vector3 {
+                x: 0.03,
+                y: 0.15,
+                z: 0.125,
+            },
+            color: ColorRGBA {
+                r: 0.0,
+                g: 1.0,
+                b: 0.0,
+                a: 0.0,
+            },
+            lifetime: r2r::builtin_interfaces::msg::Duration {
+                sec: 0,
+                nanosec: 300000000,
+            },
+            frame_locked: false,
+            points: vec![],
+            colors: vec![],
+            texture_resource: "".to_string(),
+            texture: Default::default(),
+            uv_coordinates: vec![],
+            text: "".to_string(),
+            mesh_resource: "".to_string(),
+            mesh_file: Default::default(),
+            mesh_use_embedded_materials: false,
+        });
+    }
 
     tf_publisher.publish(TFMessage {
         transforms: transform_stamped,

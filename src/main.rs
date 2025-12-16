@@ -21,6 +21,7 @@ use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::ros2::plugin::ROS2Plugin;
 #[cfg(feature = "ros2")]
 use crate::ros2::plugin::SubscribeAutoAim;
+use crate::util::entity_query::HierarchyQuery;
 use crate::{
     handler::{on_activate, on_hit},
     statistic::{accurate_count, accurate_pct, increase_launch, launch_count},
@@ -398,10 +399,10 @@ fn setup_ground(
 fn setup_vehicle(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
-    children: Query<&Children>,
+    query: HierarchyQuery,
     root_query: Query<(Entity, &Infantry, Option<&Controlled>)>,
     secondary_query: Query<&ChildOf, (Without<Infantry>, Without<SceneInstance>)>,
-    node_query: Query<(Entity, &Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
+    node_query: Query<(&Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
 ) {
     let root = events.entity;
     if root_query.get(root).is_err() {
@@ -410,11 +411,11 @@ fn setup_vehicle(
     let (root, &Infantry(team, config), is_local) = root_query.get(root).unwrap();
     let is_local = is_local.is_some();
     if is_local {
-        children.iter_descendants(root).for_each(|e| {
+        query.children.iter_descendants(root).for_each(|e| {
             commands.entity(e).insert(Controlled);
         });
     } else {
-        children.iter_descendants(root).for_each(|e| {
+        query.children.iter_descendants(root).for_each(|e| {
             commands.entity(e).insert(SlapperInfantry);
         });
     }
@@ -447,19 +448,20 @@ fn setup_vehicle(
         Restitution::new(0.01),
         AngularDamping(50.0),
     ));
+    let iter = query.of(root).any().into_iter();
 
     let mut despawn = HashSet::new();
 
-    for (node, name, &ChildOf(secondary)) in node_query {
-        let Ok(&ChildOf(root2)) = secondary_query.get(secondary) else {
-            continue;
-        };
-        if root != root2 {
-            continue;
-        }
-        despawn.insert(secondary);
-        commands.entity(secondary).remove_child(node);
+    let root_query = query.of(root).flatten();
+
+    for node in iter {
+        commands
+            .entity(query.of(node).parent().one().unwrap())
+            .remove_child(node);
         commands.entity(root).add_child(node);
+    }
+
+    for (node, name, &ChildOf(secondary)) in iter {
         let mut ent = commands.entity(node);
         match name.as_str() {
             "BASE" => {
@@ -472,7 +474,7 @@ fn setup_vehicle(
             "GIMBAL" => {
                 ent.insert(InfantryGimbal::default());
                 if is_local {
-                    children.iter_descendants(node).for_each(|e| {
+                    query.children.iter_descendants(node).for_each(|e| {
                         if let Ok((_, name, _)) = node_query.get(e) {
                             match name.as_str() {
                                 "SHOT_DIRECTION" => {
@@ -502,7 +504,7 @@ fn setup_projectile(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.insert_resource(ProjectileSetting(
-        meshes.add(Sphere::new(44.5 * 0.001 / 2.0)),
+        meshes.add(Sphere::new(17.0 * 0.001 / 2.0)),
         materials.add(StandardMaterial {
             base_color: Color::srgba(0.132866, 1.0, 0.132869, 0.55),
             emissive: LinearRgba::new(0.132866, 1.0, 0.132869, 0.55),
@@ -563,7 +565,7 @@ fn projectile_launch(
     let vel = infantry.1.0 + direction * 25.0;
     commands.spawn((
         RigidBody::Dynamic,
-        Collider::sphere(44.5 * 0.001 / 2.0),
+        Collider::sphere(17.0 * 0.001 / 2.0),
         Mass(44.5 * 0.001),
         Friction::new(1.1),
         Restitution::ZERO,

@@ -32,9 +32,9 @@ macro_rules! query {
 
 #[derive(SystemParam)]
 pub struct HierarchyQuery<'w, 's> {
-    child_of: Query<'w, 's, Read<ChildOf>>,
-    children: Query<'w, 's, Read<Children>>,
-    name: Query<'w, 's, Read<Name>, With<ChildOf>>,
+    pub child_of: Query<'w, 's, Read<ChildOf>>,
+    pub children: Query<'w, 's, Read<Children>>,
+    pub name: Query<'w, 's, Read<Name>, With<ChildOf>>,
 }
 
 impl<'w, 's> HierarchyQuery<'w, 's> {
@@ -124,6 +124,35 @@ impl<'q, 'w, 's, IterType: HierarchyIter> Hierarchy<'q, 'w, 's, IterType> {
     impl_hierarchy!(pub without, contains !);
     // literally a hack lol
     impl_hierarchy!(_any, eq return true;#[allow(unreachable_code)]);
+
+    #[must_use]
+    #[inline]
+    pub fn flatten(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
+        match self {
+            Hierarchy::Prologue { lazy, param } => Hierarchy::Prologue {
+                lazy: lazy.collect::<Vec<_>>().into_iter(),
+                param,
+            },
+            Hierarchy::Epilogue => Hierarchy::Epilogue,
+        }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn parent<T: Into<&'q str>>(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
+        match self {
+            Hierarchy::Prologue { lazy, param } => {
+                let flatten = lazy.filter_map(|current| {
+                    param.child_of.get(current).ok().map(|children| children.0)
+                });
+                Hierarchy::Prologue {
+                    lazy: flatten,
+                    param,
+                }
+            }
+            Hierarchy::Epilogue => Hierarchy::Epilogue,
+        }
+    }
 
     pub fn any(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
         self._any("")

@@ -6,7 +6,6 @@ use crate::ros2::image::compress_image;
 use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
 use bevy::anti_alias::fxaa::Fxaa;
-use bevy::camera::Exposure;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::ecs::world::DeferredWorld;
 use bevy::post_process::bloom::Bloom;

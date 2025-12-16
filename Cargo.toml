@@ -20,3 +20,4 @@ image = "0.25.9"
 egui = "0.33.2"
 futures = "0.3"
 exact = { path = "crates/exact" }
+foxglove = "0.16.1"

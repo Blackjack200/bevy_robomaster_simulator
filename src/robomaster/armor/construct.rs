@@ -11,12 +11,16 @@ use bevy::prelude::{
     Name, Plugin, Query, Res, Update, Vec3, Visibility, With, info,
 };
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Component, Debug)]
 pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
 
 #[derive(Component, Clone, Debug)]
 pub struct VertexData(pub Side, pub Vec<Vec3>);
+
+#[derive(Component, Clone, Debug)]
+pub struct LightStrip(pub Side);
 
 #[derive(Component, Clone)]
 pub struct ArmorOwned(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
@@ -38,18 +42,9 @@ pub struct ArmorIdentifier {
 
 impl ArmorIdentifier {
     fn parse(name: &str) -> Option<Self> {
-        let name = &name[..name.rfind('.').unwrap_or(name.len())];
-        let pos = name.find("ARMOR")?;
-        let identifier = name[..pos].to_string();
-        let armor_parts = &name[pos..];
-        let mut parts: Vec<String> = armor_parts.split('_').map(ToString::to_string).collect();
-        if parts.first().map(|v| v.as_ref()) != Some("ARMOR") {
-            return None;
-        }
-        parts.remove(0);
         Some(Self {
-            identifier,
-            component_type: parts,
+            identifier: name.to_string(),
+            component_type: vec![],
         })
     }
 }
@@ -66,6 +61,7 @@ pub struct ArmorConstructor<'w, 's> {
 
 #[derive(Component, Clone)]
 pub struct ArmorRoot {
+    pub id: usize,
     marker: Entity,
     sticker: ArmorSticker,
     pub counter: usize,
@@ -136,7 +132,7 @@ impl ArmorConstructor<'_, '_> {
         Some(MarkerData(vertices))
     }
 
-    fn process_vertex(
+    fn extract_vertex(
         &mut self,
         entity: Entity,
         info: &ArmorIdentifier,
@@ -165,7 +161,7 @@ impl ArmorConstructor<'_, '_> {
         armor_data: &ScanArmor,
     ) -> Option<ArmorRoot> {
         let query = HierarchyQuery::new(self.child_of, self.children, self.name);
-        let root_query = query.of(root);
+        let root_query = query.of(root).flatten();
         {
             self.commands.entity(query!(root_query, .."ARMOR")?).insert(
                 ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
@@ -208,27 +204,26 @@ impl ArmorConstructor<'_, '_> {
         for hide in hide {
             self.commands.entity(hide).despawn();
         }
+
+        self.commands
+            .entity(lights[0])
+            .insert(LightStrip(Side::Left));
+        self.commands
+            .entity(lights[1])
+            .insert(LightStrip(Side::Right));
+
         let marker = query!(root_query, .."MARKER", ...)?;
         self.process_marker(marker, &info, armor_data)?;
 
         let vertex = [
-            (Side::Left, query!(root_query, .."VERTEX_L")?),
-            (Side::Right, query!(root_query, .."VERTEX_R")?),
+            (Side::Left, query!(root_query, .."VERTEX_L", ...)?),
+            (Side::Right, query!(root_query, .."VERTEX_R", ...)?),
         ];
-        self.commands.entity(vertex[0].1).insert(Visibility::Hidden);
-        self.commands.entity(vertex[1].1).insert(Visibility::Hidden);
-
         let vertices = vertex.map(|(side, vertex)| {
-            let v = self
-                .process_vertex(
-                    query!(nocopy query.of(vertex), ...).unwrap(),
-                    &info,
-                    armor_data,
-                )
-                .unwrap();
+            let v = self.extract_vertex(vertex, &info, armor_data).unwrap();
             self.commands
                 .entity(vertex)
-                .insert((VertexData(side, v.clone()), Visibility::Hidden));
+                .insert((VertexData(side.clone(), v.clone()), Visibility::Hidden));
             vertex
         });
         let sticker = ArmorSticker({
@@ -254,7 +249,10 @@ impl ArmorConstructor<'_, '_> {
             armor_data.2,
         ));
 
+        static ID: AtomicUsize = AtomicUsize::new(0);
+
         let ar = ArmorRoot {
+            id: ID.fetch_add(1, Ordering::SeqCst),
             marker,
             sticker,
             counter: ArmorLabel::index_from_small(armor_data.2),

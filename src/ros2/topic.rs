@@ -9,6 +9,7 @@ use r2r::geometry_msgs::msg::PoseStamped;
 use r2r::rm_interfaces::msg::GimbalCmd;
 use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image};
 use r2r::tf2_msgs::msg::TFMessage;
+use r2r::visualization_msgs::msg::Marker;
 use r2r::{Node, QosProfile, WrappedTypesupport};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -146,6 +147,7 @@ topic!(
         "/image_raw" as Image as ImageRawTopic;
         "/image_compressed" as CompressedImage as ImageCompressedTopic;
         "/tf" as TFMessage as GlobalTransformTopic;
+        "/simulator/marker" as Marker as OutpostMarkerTopic;
         "/gimbal_pose" as PoseStamped as GimbalPoseTopic;
         "/odom_pose" as PoseStamped as OdomPoseTopic;
         "/muzzle_pose" as PoseStamped as MuzzlePoseTopic;
