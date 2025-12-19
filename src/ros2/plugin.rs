@@ -2,6 +2,7 @@ use crate::capture::driver::CaptureConfig;
 use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
 use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
+use crate::ros2::prelude::AverageRateLimiter;
 use crate::ros2::prelude::transform;
 use crate::ros2::topic::*;
 use crate::util::entity_query::HierarchyQuery;
@@ -41,6 +42,9 @@ struct SpinThreadHandle(Option<JoinHandle<()>>);
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
+
+#[derive(Resource, Deref, DerefMut)]
+struct FireRateLimiter(AverageRateLimiter);
 
 macro_rules! tf_tree {
     (stamp: $stamp:expr;$root:literal { $($content:tt)* }) => {{
@@ -242,8 +246,10 @@ fn capture_rune(
 }
 
 fn process_subscription(
+    time: Res<Time>,
     mut commands: Commands,
     gimbal_cmd: ResMut<TopicSubscriber<GimbalCmdTopic>>,
+    mut fire_rate_limiter: ResMut<FireRateLimiter>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
         (
@@ -258,6 +264,7 @@ fn process_subscription(
     >,
 ) {
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
+    fire_rate_limiter.tick(time.delta());
     loop {
         let Ok(Some(cmd)) = gimbal_cmd.try_recv() else {
             return;
@@ -266,12 +273,11 @@ fn process_subscription(
             return;
         }
         if cmd.fire_advice {
-            if rand::random::<f32>() > 0.1 {
-                return;
+            if fire_rate_limiter.allow() {
+                commands.queue(|w: &mut World| {
+                    w.run_system_once(projectile_launch).unwrap();
+                });
             }
-            commands.queue(|w: &mut World| {
-                w.run_system_once(projectile_launch).unwrap();
-            });
         }
         let yaw_f32 = (cmd.yaw as f32).to_radians();
         let pitch_f32 = (cmd.pitch as f32 - 90.0).to_radians();
@@ -333,6 +339,7 @@ impl Plugin for ROS2Plugin {
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
+            .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
             .add_plugins(RosCapturePlugin {
                 config: CaptureConfig {
                     width: IMAGE_WIDTH,

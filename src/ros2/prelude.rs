@@ -1,5 +1,38 @@
 use bevy::math::{Mat3, Quat, Vec3};
 use bevy::prelude::Transform;
+use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct AverageRateLimiter {
+    period: Duration,
+    elapsed: Duration,
+}
+
+impl AverageRateLimiter {
+    pub fn new(period: Duration) -> Self {
+        Self {
+            period,
+            elapsed: period,
+        }
+    }
+
+    pub fn from_hz(hz: f32) -> Self {
+        assert!(hz.is_finite() && hz > 0.0);
+        Self::new(Duration::from_secs_f32(1.0 / hz))
+    }
+
+    pub fn tick(&mut self, delta: Duration) {
+        self.elapsed = self.elapsed.saturating_add(delta).min(self.period);
+    }
+
+    pub fn allow(&mut self) -> bool {
+        if self.elapsed < self.period {
+            return false;
+        }
+        self.elapsed = Duration::ZERO;
+        true
+    }
+}
 
 pub const M_ALIGN_MAT3: Mat3 = Mat3::from_cols(
     Vec3::new(0.0, -1.0, 0.0), // M[0,0], M[1,0], M[2,0]

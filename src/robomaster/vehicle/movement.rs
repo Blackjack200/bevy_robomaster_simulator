@@ -14,7 +14,7 @@ impl Default for VehicleDynamic {
     fn default() -> Self {
         Self {
             max_speed: 4.0,
-            linear_acceleration: 10.0,
+            linear_acceleration: 8.0,
             n: 10.0,
         }
     }
