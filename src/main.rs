@@ -3,9 +3,10 @@ mod capture;
 mod dataset;
 mod handler;
 mod robomaster;
-
 #[cfg(feature = "ros2")]
 mod ros2;
+#[cfg(feature = "talos")]
+mod talos;
 
 mod statistic;
 mod util;
@@ -43,6 +44,8 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::PI;
 use std::sync::Mutex;
+#[cfg(feature = "talos")]
+use talos::TalosPlugin;
 
 #[derive(Component)]
 struct MainCamera {
@@ -212,6 +215,12 @@ fn main() {
         info!("ROS2 integration disabled");
     }
 
+    #[cfg(feature = "talos")]
+    {
+        app.add_plugins(TalosPlugin::default());
+        info!("talos integration enabled");
+    }
+
     app.run();
 }
 
@@ -355,7 +364,7 @@ fn setup(
         Camera::default(),
         PrimaryEguiContext,
         Projection::Perspective(PerspectiveProjection {
-            fov: std::f32::consts::PI / 180.0 * 45.0,
+            fov: PI / 180.0 * 45.0,
             near: 0.1,
             far: 500000000.0,
             ..default()
@@ -368,8 +377,8 @@ fn setup(
             follow_offset: Vec3::new(0.0, 3.0, 2.0),
         },
     ));
-    #[cfg(feature = "ros2")]
-    _ent.insert(ros2::plugin::MainCamera);
+    #[cfg(any(feature = "ros2", feature = "talos"))]
+    _ent.insert(capture::CaptureSource);
 }
 
 fn setup_ground(
@@ -448,53 +457,23 @@ fn setup_vehicle(
         Restitution::new(0.01),
         AngularDamping(50.0),
     ));
-    let iter = query.of(root).any().into_iter();
 
-    let mut despawn = HashSet::new();
-
-    let root_query = query.of(root).flatten();
-
-    for node in iter {
+    let iter = query.of(root).any().exact("VEHICLE").flatten();
+    let base = iter.clone().exact("BASE").one().unwrap();
+    commands.entity(base).insert((
+        InfantryChassis::default(),
+        ScanArmor(team, config.0, config.1),
+    ));
+    let gimbal = iter.exact("GIMBAL").one().unwrap();
+    commands.entity(gimbal).insert(InfantryGimbal::default());
+    if is_local {
+        let q = query.of(gimbal).flatten();
         commands
-            .entity(query.of(node).parent().one().unwrap())
-            .remove_child(node);
-        commands.entity(root).add_child(node);
-    }
-
-    for (node, name, &ChildOf(secondary)) in iter {
-        let mut ent = commands.entity(node);
-        match name.as_str() {
-            "BASE" => {
-                ent.insert((
-                    InfantryChassis::default(),
-                    ScanArmor(team, config.0, config.1),
-                ));
-                println!("k {:?}", ScanArmor(team, config.0, config.1));
-            }
-            "GIMBAL" => {
-                ent.insert(InfantryGimbal::default());
-                if is_local {
-                    query.children.iter_descendants(node).for_each(|e| {
-                        if let Ok((_, name, _)) = node_query.get(e) {
-                            match name.as_str() {
-                                "SHOT_DIRECTION" => {
-                                    commands.entity(e).insert(InfantryLaunchOffset);
-                                }
-                                "CAM_DIRECTION" => {
-                                    commands.entity(e).insert(InfantryViewOffset);
-                                }
-                                _ => {}
-                            }
-                        }
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-
-    for ent in despawn {
-        commands.entity(ent).despawn();
+            .entity(q.clone().exact("SHOT_DIRECTION").one().unwrap())
+            .insert(InfantryLaunchOffset);
+        commands
+            .entity(q.exact("CAM_DIRECTION").one().unwrap())
+            .insert(InfantryViewOffset);
     }
 }
 

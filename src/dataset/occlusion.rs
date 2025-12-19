@@ -53,43 +53,52 @@ impl<'w, 's> Occlusion<'w, 's> {
                     {
                         return false;
                     }
-                    let is_light_strip = self.child_of.iter_ancestors(e).any(|parent| {
-                        let Ok(parent) = self.light_strip.get(parent) else {
-                            return false;
-                        };
-                        parent.0 != *side
-                    });
                     let is_vertex = self.child_of.iter_ancestors(e).any(|parent| {
                         let Ok(parent) = self.vertex.get(parent) else {
                             return false;
                         };
                         parent.0 != *side
                     });
-                    if is_light_strip || is_vertex {
+                    if is_vertex {
                         return false;
+                    }
+                    let is_self = self
+                        .child_of
+                        .iter_ancestors(e)
+                        .any(|parent| parent == armor_entity);
+                    if is_self {
+                        let is_light_strip_other_side =
+                            self.child_of.iter_ancestors(e).any(|parent| {
+                                let Ok(parent) = self.light_strip.get(parent) else {
+                                    return false;
+                                };
+                                parent.0 != *side
+                            });
+                        return is_light_strip_other_side;
                     }
                     true
                 },
                 ..default()
             },
         );
-        for &(e, ref hit) in hits {
-            if self.child_of.iter_ancestors(e).any(|ancestor| {
+        'h: for &(e, ref hit) in hits {
+            'g: for ancestor in self.child_of.iter_ancestors(e) {
                 let Ok(ancestor) = self.light_strip.get(ancestor) else {
-                    return false;
+                    continue 'g;
                 };
-                ancestor.0 != *side
-            }) {
-                println!(
-                    "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",
-                    self.names.get(armor_entity),
-                    side,
-                    self.names.get(e),
-                    hit.distance,
-                    total_dist
-                );
-                //untolerated
-                return OcclusionType::Untolerated;
+                println!("{:?}!={:?}", ancestor.0, *side);
+                if ancestor.0 != *side {
+                    println!(
+                        "{:?}@{:?} is occluded by light_strip: {:?}, hit_dist: {}, total_dist: {}",
+                        self.names.get(armor_entity),
+                        side,
+                        self.names.get(e),
+                        hit.distance,
+                        total_dist
+                    );
+                    //untolerated
+                    return OcclusionType::Untolerated;
+                }
             }
             println!(
                 "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",

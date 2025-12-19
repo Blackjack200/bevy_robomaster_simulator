@@ -1,17 +1,16 @@
-use crate::capture::driver::{
-    CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync,
+//! ROS2 图像捕获实现
+
+use crate::capture::{
+    CameraFov, ImageHandle, compute_camera_intrinsics,
+    driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
+    setup_capture_camera, sync_capture_camera,
 };
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::ros2::image::compress_image;
-use crate::ros2::plugin::MainCamera;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
-use bevy::anti_alias::fxaa::Fxaa;
-use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::ecs::world::DeferredWorld;
-use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::render::RenderApp;
-use bevy::render::view::Hdr;
 use r2r::Clock;
 use r2r::sensor_msgs::msg::{CameraInfo, RegionOfInterest};
 use r2r::std_msgs::msg::Header;
@@ -26,7 +25,7 @@ impl SnapshotSync for RosSnapshotSync {
     fn captured(
         self: Box<Self>,
         world: &mut DeferredWorld,
-        config: &CaptureConfig,
+        _config: &CaptureConfig,
     ) -> Box<dyn SnapshotAsync> {
         Box::new(RosSnapshot {
             stamp: self.stamp,
@@ -46,7 +45,7 @@ impl SnapshotAsync for RosSnapshot {
             stamp: self.stamp.take(),
             frame_id: "camera_optical_frame".to_string(),
         };
-        self.ctx.camera_info.publish(compute_camera_intrinsic(
+        self.ctx.camera_info.publish(ros_camera_info(
             optical_frame_hdr.clone(),
             width,
             height,
@@ -99,12 +98,6 @@ pub struct RosCapturePlugin {
     pub context: RosCaptureContext,
 }
 
-#[derive(Resource, Deref)]
-pub struct ImageHandle(Handle<Image>);
-
-#[derive(Resource, Deref, DerefMut)]
-struct RateLimiter(Mutex<Timer>);
-
 impl Plugin for RosCapturePlugin {
     fn build(&self, app: &mut App) {
         let (plugin, render_target_handle) = CameraCapturePlugin::new(
@@ -117,50 +110,14 @@ impl Plugin for RosCapturePlugin {
         );
         app.add_plugins(plugin)
             .insert_resource(ImageHandle(render_target_handle))
+            .insert_resource(CameraFov(self.context.fov_y))
             .insert_resource(self.context.clone())
-            .add_systems(Startup, setup_camera)
-            .add_systems(Update, sync_camera);
+            .add_systems(Startup, setup_capture_camera)
+            .add_systems(Update, sync_capture_camera);
         app.sub_app_mut(RenderApp)
             .insert_resource(RosCaptureContextShared(Arc::new(self.context.clone())))
             .insert_resource(self.context.clone());
     }
-}
-
-#[derive(Component)]
-pub struct CaptureCamera;
-fn setup_camera(
-    mut commands: Commands,
-    render_target_handle: Res<ImageHandle>,
-    config: Res<RosCaptureContext>,
-) {
-    commands.spawn((
-        Camera3d::default(),
-        Bloom::NATURAL,
-        Tonemapping::None,
-        Camera {
-            target: render_target_handle.0.clone().into(),
-            ..default()
-        },
-        Projection::Perspective(PerspectiveProjection {
-            fov: config.fov_y,
-            near: 0.1,
-            far: 500000000.0,
-            ..default()
-        }),
-        Msaa::Off,
-        Fxaa::default(),
-        Hdr,
-        CaptureCamera,
-    ));
-}
-
-fn sync_camera(
-    target: Single<&Transform, (With<MainCamera>, Without<CaptureCamera>)>,
-    mut our: Single<&mut Transform, (With<CaptureCamera>, Without<MainCamera>)>,
-) {
-    our.translation = target.translation;
-    our.scale = target.scale;
-    our.rotation = target.rotation;
 }
 
 fn raw_image(hdr: Header, width: u32, height: u32, data: &[u8]) -> r2r::sensor_msgs::msg::Image {
@@ -175,29 +132,40 @@ fn raw_image(hdr: Header, width: u32, height: u32, data: &[u8]) -> r2r::sensor_m
     }
 }
 
-fn compute_camera_intrinsic(hdr: Header, width: u32, height: u32, fov_y: f32) -> CameraInfo {
-    let fov_y = fov_y as f64;
-    let (width, height) = (width, height);
+fn ros_camera_info(hdr: Header, width: u32, height: u32, fov_y: f32) -> CameraInfo {
+    let intrinsics = compute_camera_intrinsics(width, height, fov_y);
 
-    let (fov_y, fov_x) = {
-        let aspect = width as f64 / height as f64;
-        let fov_x = 2.0 * ((fov_y / 2.0).tan() * aspect).atan();
-        (fov_y, fov_x)
-    };
-
-    let f_x = width as f64 / (2.0 * (fov_x / 2.0).tan());
-    let f_y = height as f64 / (2.0 * (fov_y / 2.0).tan());
-
-    let c_x = width as f64 / 2.0;
-    let c_y = height as f64 / 2.0;
     CameraInfo {
         header: hdr,
         height,
         width,
         distortion_model: "plumb_bob".to_string(),
         d: vec![0.000, 0.000, 0.000, 0.000, 0.000],
-        k: vec![f_x, 0.0, c_x, 0.0, f_y, c_y, 0.0, 0.0, 1.0],
-        p: vec![f_x, 0.0, c_x, 0.0, 0.0, f_y, c_y, 0.0, 0.0, 0.0, 1.0, 0.0],
+        k: vec![
+            intrinsics.fx,
+            0.0,
+            intrinsics.cx,
+            0.0,
+            intrinsics.fy,
+            intrinsics.cy,
+            0.0,
+            0.0,
+            1.0,
+        ],
+        p: vec![
+            intrinsics.fx,
+            0.0,
+            intrinsics.cx,
+            0.0,
+            0.0,
+            intrinsics.fy,
+            intrinsics.cy,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+        ],
         r: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         binning_x: 0,
         binning_y: 0,

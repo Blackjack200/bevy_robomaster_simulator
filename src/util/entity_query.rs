@@ -87,6 +87,7 @@ macro_rules! impl_hierarchy {
         ) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
             match self {
                 Hierarchy::Prologue { lazy, param } => {
+                    #[allow(unused_assignments)]
                     let _suffix = suffix.into();
                     let flatten = lazy
                         .filter_map(|current| {
@@ -122,24 +123,28 @@ impl<'q, 'w, 's, IterType: HierarchyIter> Hierarchy<'q, 'w, 's, IterType> {
     impl_hierarchy!(pub exact, eq);
     impl_hierarchy!(pub with, contains);
     impl_hierarchy!(pub without, contains !);
-    // literally a hack lol
-    impl_hierarchy!(_any, eq return true;#[allow(unreachable_code)]);
 
     #[must_use]
     #[inline]
     pub fn flatten(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
         match self {
-            Hierarchy::Prologue { lazy, param } => Hierarchy::Prologue {
-                lazy: lazy.collect::<Vec<_>>().into_iter(),
-                param,
-            },
+            Hierarchy::Prologue { lazy, param } => {
+                let vec = lazy.collect::<Vec<_>>();
+                if vec.is_empty() {
+                    return Hierarchy::Epilogue;
+                }
+                Hierarchy::Prologue {
+                    lazy: vec.into_iter(),
+                    param,
+                }
+            }
             Hierarchy::Epilogue => Hierarchy::Epilogue,
         }
     }
 
     #[must_use]
     #[inline]
-    pub fn parent<T: Into<&'q str>>(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
+    pub fn parent(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
         match self {
             Hierarchy::Prologue { lazy, param } => {
                 let flatten = lazy.filter_map(|current| {
@@ -150,14 +155,40 @@ impl<'q, 'w, 's, IterType: HierarchyIter> Hierarchy<'q, 'w, 's, IterType> {
                     param,
                 }
             }
-            Hierarchy::Epilogue => Hierarchy::Epilogue,
+            Hierarchy::Epilogue => {
+                panic!("parent on epilogue");
+            }
         }
     }
 
+    #[must_use]
+    #[inline]
     pub fn any(self) -> Hierarchy<'q, 'w, 's, impl HierarchyIter> {
-        self._any("")
+        match self {
+            Hierarchy::Prologue { lazy, param } => {
+                let flatten = lazy
+                    .filter_map(|current| {
+                        param
+                            .children
+                            .get(current)
+                            .ok()
+                            .map(|children| children.into_iter())
+                    })
+                    .flatten()
+                    .copied();
+                Hierarchy::Prologue {
+                    lazy: flatten,
+                    param,
+                }
+            }
+            Hierarchy::Epilogue => {
+                panic!("any on epilogue");
+            }
+        }
     }
 
+    #[must_use]
+    #[inline]
     pub fn one(self) -> Option<Entity> {
         match self {
             Hierarchy::Prologue { lazy, .. } => lazy.exact::<1>().ok().into_single(),

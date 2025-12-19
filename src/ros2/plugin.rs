@@ -1,4 +1,5 @@
 use crate::capture::driver::CaptureConfig;
+use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
 use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::prelude::transform;
@@ -37,9 +38,6 @@ struct StopSignal(Arc<AtomicBool>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct SpinThreadHandle(Option<JoinHandle<()>>);
-
-#[derive(Component)]
-pub struct MainCamera;
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
@@ -106,7 +104,7 @@ macro_rules! tf_tree {
 }
 
 fn capture_rune(
-    camera: Single<&GlobalTransform, With<MainCamera>>,
+    camera: Single<&GlobalTransform, With<CaptureSource>>,
     gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
     muzzle_offset: Single<
         (&GlobalTransform, &Transform),
@@ -337,8 +335,8 @@ impl Plugin for ROS2Plugin {
             .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
             .add_plugins(RosCapturePlugin {
                 config: CaptureConfig {
-                    width: 1440,
-                    height: 1080,
+                    width: IMAGE_WIDTH,
+                    height: IMAGE_HEIGHT,
                     texture_format: TextureFormat::bevy_default(),
                 },
                 context: RosCaptureContext {
