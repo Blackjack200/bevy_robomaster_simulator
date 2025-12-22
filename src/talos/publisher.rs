@@ -1,6 +1,7 @@
 use crate::talos::layout::*;
 use crate::talos::shm::{ShmError, ShmRegion};
 use crate::talos::triple_buffer::TripleBufferProducer;
+use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct ShmPublisher {
@@ -16,6 +17,8 @@ impl ShmPublisher {
 
         unsafe {
             let meta = meta_region.as_mut::<ShmMetaRegion>();
+
+            // 初始化 header
             meta.header = ShmHeader {
                 magic: SHM_MAGIC,
                 version: SHM_VERSION,
@@ -25,6 +28,14 @@ impl ShmPublisher {
                 image_height: IMAGE_HEIGHT,
                 _pad: [0; 32],
             };
+
+            // 初始化所有 TripleBuffer (CRITICAL: 零填充破坏了正确的初始状态)
+            // 正确初始状态: state=1 (ready slot), write_idx=0, read_idx=2
+            Self::init_triple_buffer(&mut meta.image);
+            for pose in &mut meta.poses {
+                Self::init_triple_buffer(pose);
+            }
+            Self::init_triple_buffer(&mut meta.gimbal_cmd);
         }
 
         Ok(Self {
@@ -110,5 +121,47 @@ impl ShmPublisher {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0)
+    }
+
+    /// 初始化 TripleBuffer 到正确的初始状态
+    ///
+    /// ShmRegion::create() 使用零填充，会破坏 TripleBuffer 的正确初始状态。
+    /// 必须手动重新初始化。
+    ///
+    /// 正确初始状态:
+    /// - state = 1 (ready slot 是 1, 无 FLAG_NEW)
+    /// - write_idx = 0 (生产者写入 slot 0)
+    /// - read_idx = 2 (消费者上次读取 slot 2)
+    fn init_triple_buffer(buf: &mut impl TripleBufferInit) {
+        buf.init_state();
+    }
+}
+
+/// Trait for initializing triple buffer state
+trait TripleBufferInit {
+    fn init_state(&mut self);
+}
+
+impl TripleBufferInit for ImageTripleBuffer {
+    fn init_state(&mut self) {
+        self.state.store(1, Ordering::Relaxed);
+        self.write_idx = 0;
+        self.read_idx = 2;
+    }
+}
+
+impl TripleBufferInit for PoseTripleBuffer {
+    fn init_state(&mut self) {
+        self.state.store(1, Ordering::Relaxed);
+        self.write_idx = 0;
+        self.read_idx = 2;
+    }
+}
+
+impl TripleBufferInit for GimbalTripleBuffer {
+    fn init_state(&mut self) {
+        self.state.store(1, Ordering::Relaxed);
+        self.write_idx = 0;
+        self.read_idx = 2;
     }
 }
