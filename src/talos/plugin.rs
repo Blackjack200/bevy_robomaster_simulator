@@ -1,15 +1,16 @@
-use bevy::prelude::*;
-use bevy::render::render_resource::TextureFormat;
-use std::f32::consts::PI;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
-
 use crate::capture::driver::CaptureConfig;
 use crate::capture::{IMAGE_HEIGHT, IMAGE_WIDTH};
 use crate::talos::capture::{TalosCaptureContext, TalosCapturePlugin};
 use crate::talos::layout::*;
 use crate::talos::publisher::ShmPublisher;
 use crate::talos::subscriber::ShmSubscriber;
+use crate::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, projectile_launch};
+use bevy::ecs::system::RunSystemOnce;
+use bevy::prelude::*;
+use bevy::render::render_resource::TextureFormat;
+use std::f32::consts::PI;
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 
 #[derive(Resource)]
 pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);
@@ -83,6 +84,41 @@ impl Plugin for TalosPlugin {
 
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
         app.add_systems(Last, heartbeat_system);
+        app.add_systems(Update, process_subscription);
+    }
+}
+
+fn process_subscription(
+    context: Option<Res<ShmSubscriberRes>>,
+    mut commands: Commands,
+    gimbal: Single<
+        (&mut Transform, &mut InfantryGimbal),
+        (
+            With<Controlled>,
+            Without<InfantryChassis>,
+            Without<InfantryLaunchOffset>,
+        ),
+    >,
+    muzzle_offset: Single<
+        (&GlobalTransform, &Transform),
+        (With<InfantryLaunchOffset>, With<Controlled>),
+    >,
+) {
+    let Some(ctx) = context else {
+        return;
+    };
+    let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
+
+    let Some(cmd) = recv_gimbal_cmd(&ctx) else {
+        return;
+    };
+    if cmd.distance_m == -1.0 {
+        return;
+    }
+    if cmd.fire_advice == 1 {
+        commands.queue(|w: &mut World| {
+            w.run_system_once(projectile_launch).unwrap();
+        });
     }
 }
 
