@@ -209,6 +209,20 @@ fn capture(
             continue;
         }
         let (tf, MarkerData(markers)) = marker_data.get(marker).unwrap();
+
+        // DEBUG: 打印 marker 坐标诊断信息
+        println!("=== MARKER DEBUG for {} ===", ident.identifier);
+        println!(
+            "MARKER GlobalTransform: translation={:?}, rotation={:?}",
+            tf.translation(),
+            tf.to_scale_rotation_translation().1
+        );
+        println!("MarkerData local vertices: {:?}", markers);
+        for (i, &local) in markers.iter().enumerate() {
+            let world = tf.transform_point(local);
+            println!("  vertex[{}]: local={:?} -> world={:?}", i, local, world);
+        }
+
         let Some(markers) = all_in_frustum(tf, markers) else {
             continue;
         };

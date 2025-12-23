@@ -11,6 +11,14 @@ use bevy::render::render_resource::TextureFormat;
 use std::f32::consts::PI;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Resource)]
 pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);
@@ -84,7 +92,7 @@ impl Plugin for TalosPlugin {
 
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
         app.add_systems(Last, heartbeat_system);
-        app.add_systems(Update, process_subscription);
+        app.add_systems(Update, (process_subscription, publish_gimbal_pose_system));
     }
 }
 
@@ -144,4 +152,24 @@ pub fn publish_pose(
 
 pub fn recv_gimbal_cmd(subscriber: &ShmSubscriberRes) -> Option<GimbalCmd> {
     subscriber.0.lock().ok()?.recv_gimbal_cmd()
+}
+
+fn publish_gimbal_pose_system(
+    context: Option<Res<TalosCaptureContext>>,
+    gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
+) {
+    let Some(ctx) = context else { return };
+    let transform = gimbal.into_inner();
+
+    let translation = transform.translation();
+    let rotation = transform.rotation();
+    let timestamp_ns = now_ns();
+
+    publish_pose(
+        &ctx,
+        PoseIndex::Gimbal,
+        [translation.x, translation.y, translation.z],
+        [rotation.w, rotation.x, rotation.y, rotation.z],
+        timestamp_ns,
+    );
 }

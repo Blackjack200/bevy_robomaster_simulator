@@ -67,14 +67,25 @@ impl<'w, 's> Occlusion<'w, 's> {
                         .iter_ancestors(e)
                         .any(|parent| parent == armor_entity);
                     if is_self {
-                        let is_light_strip_other_side =
-                            self.child_of.iter_ancestors(e).any(|parent| {
-                                let Ok(parent) = self.light_strip.get(parent) else {
-                                    return false;
-                                };
-                                parent.0 != *side
+                        // 检查是否是灯条
+                        let is_light_strip = self
+                            .child_of
+                            .iter_ancestors(e)
+                            .any(|parent| self.light_strip.get(parent).is_ok());
+
+                        if is_light_strip {
+                            // 灯条：只有另一侧的参与 raycast
+                            let is_other_side = self.child_of.iter_ancestors(e).any(|parent| {
+                                self.light_strip
+                                    .get(parent)
+                                    .map(|ls| ls.0 != *side)
+                                    .unwrap_or(false)
                             });
-                        return is_light_strip_other_side;
+                            return is_other_side;
+                        }
+
+                        // 非灯条的装甲板部件（如盖板）：参与 raycast
+                        return true;
                     }
                     true
                 },
