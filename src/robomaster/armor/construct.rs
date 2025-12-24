@@ -22,8 +22,13 @@ pub struct VertexData(pub Side, pub Vec<Vec3>);
 #[derive(Component, Clone, Debug)]
 pub struct LightStrip(pub Side);
 
-#[derive(Component, Clone)]
-pub struct ArmorOwned(pub ArmorIdentifier, pub Team, pub ArmorType, pub ArmorLabel);
+#[derive(Component, Clone, Debug)]
+pub struct Armor {
+    pub name: String,
+    pub team: Team,
+    pub armor_type: ArmorType,
+    pub label: ArmorLabel,
+}
 
 #[derive(Component, Clone, Deref, DerefMut)]
 pub struct ArmorSticker(HashMap<ArmorLabel, Entity>);
@@ -32,21 +37,6 @@ pub struct ArmorSticker(HashMap<ArmorLabel, Entity>);
 pub enum Side {
     Left,
     Right,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ArmorIdentifier {
-    pub identifier: String,
-    pub component_type: Vec<String>,
-}
-
-impl ArmorIdentifier {
-    fn parse(name: &str) -> Option<Self> {
-        Some(Self {
-            identifier: name.to_string(),
-            component_type: vec![],
-        })
-    }
 }
 
 #[derive(SystemParam)]
@@ -111,7 +101,7 @@ impl ArmorConstructor<'_, '_> {
     fn process_marker(
         &mut self,
         entity: Entity,
-        info: &ArmorIdentifier,
+        name: &str,
         armor_data: &ScanArmor,
     ) -> Option<MarkerData> {
         let mesh = self.get_mesh(entity)?;
@@ -122,7 +112,7 @@ impl ArmorConstructor<'_, '_> {
             armor_data.0,
             armor_data.1,
             armor_data.2,
-            info.identifier,
+            name,
             vertices.len()
         );
 
@@ -135,7 +125,7 @@ impl ArmorConstructor<'_, '_> {
     fn extract_vertex(
         &mut self,
         entity: Entity,
-        info: &ArmorIdentifier,
+        name: &str,
         armor_data: &ScanArmor,
     ) -> Option<Vec<Vec3>> {
         let mesh = self.get_mesh(entity)?;
@@ -147,7 +137,7 @@ impl ArmorConstructor<'_, '_> {
             armor_data.0,
             armor_data.1,
             armor_data.2,
-            info.identifier,
+            name,
             vertices.len()
         );
 
@@ -157,7 +147,7 @@ impl ArmorConstructor<'_, '_> {
     fn process_armor_root(
         &mut self,
         root: Entity,
-        info: ArmorIdentifier,
+        armor_name: String,
         armor_data: &ScanArmor,
     ) -> Option<ArmorRoot> {
         let query = HierarchyQuery::new(self.child_of, self.children, self.name);
@@ -176,17 +166,13 @@ impl ArmorConstructor<'_, '_> {
             children
                 .iter_descendants(root)
                 .filter_map(|v| name.get(v).ok().map(|name| (name, v)))
-                .for_each(|(name, armor_elem)| {
-                    let Some(info) = ArmorIdentifier::parse(name) else {
-                        info!("Failed to parse armor name: {}", name);
-                        return;
-                    };
-                    self.commands.entity(armor_elem).insert(ArmorOwned(
-                        info.clone(),
-                        armor_data.0,
-                        armor_data.1,
-                        armor_data.2,
-                    ));
+                .for_each(|(elem_name, armor_elem)| {
+                    self.commands.entity(armor_elem).insert(Armor {
+                        name: elem_name.to_string(),
+                        team: armor_data.0,
+                        armor_type: armor_data.1,
+                        label: armor_data.2,
+                    });
                 });
         }
         //let _base = query!(root_query, .."BASE")?;
@@ -213,14 +199,16 @@ impl ArmorConstructor<'_, '_> {
             .insert(LightStrip(Side::Right));
 
         let marker = query!(root_query, .."MARKER", ...)?;
-        self.process_marker(marker, &info, armor_data)?;
+        self.process_marker(marker, &armor_name, armor_data)?;
 
         let vertex = [
             (Side::Left, query!(root_query, .."VERTEX_L", ...)?),
             (Side::Right, query!(root_query, .."VERTEX_R", ...)?),
         ];
         let vertices = vertex.map(|(side, vertex)| {
-            let v = self.extract_vertex(vertex, &info, armor_data).unwrap();
+            let v = self
+                .extract_vertex(vertex, &armor_name, armor_data)
+                .unwrap();
             self.commands
                 .entity(vertex)
                 .insert((VertexData(side.clone(), v.clone()), Visibility::Hidden));
@@ -242,12 +230,12 @@ impl ArmorConstructor<'_, '_> {
             ])
         });
 
-        self.commands.entity(root).insert(ArmorOwned(
-            info.clone(),
-            armor_data.0,
-            armor_data.1,
-            armor_data.2,
-        ));
+        self.commands.entity(root).insert(Armor {
+            name: armor_name.clone(),
+            team: armor_data.0,
+            armor_type: armor_data.1,
+            label: armor_data.2,
+        });
 
         static ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -294,8 +282,7 @@ fn insert(
                     .map(|name| (child, name))
             })
             .for_each(|(ent, name)| {
-                let id = ArmorIdentifier::parse(name.as_str()).unwrap();
-                constructor.process_armor_root(ent, id, armor_data);
+                constructor.process_armor_root(ent, name.to_string(), armor_data);
             })
     }
 }

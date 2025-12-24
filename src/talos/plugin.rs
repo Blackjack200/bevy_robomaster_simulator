@@ -160,7 +160,6 @@ fn publish_gimbal_pose_system(
     context: Option<Res<TalosCaptureContext>>,
     camera: Single<&GlobalTransform, With<CaptureCamera>>,
 ) {
-    println!("wtf");
     let Some(ctx) = context else { return };
 
     let transform = camera.into_inner();
@@ -169,7 +168,6 @@ fn publish_gimbal_pose_system(
     let rotation = transform.rotation();
     let timestamp_ns = now_ns();
 
-    println!("pub");
     publish_pose(
         &ctx,
         PoseIndex::Camera,

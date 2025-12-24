@@ -1,5 +1,5 @@
 use crate::components::Controlled;
-use crate::robomaster::prelude::{ArmorOwned, LightStrip, Side, VertexData};
+use crate::robomaster::prelude::{Armor, LightStrip, Side, VertexData};
 use bevy::{
     ecs::system::{SystemParam, lifetimeless::Read},
     prelude::*,
@@ -8,7 +8,7 @@ use bevy::{
 #[derive(SystemParam)]
 pub struct Occlusion<'w, 's> {
     child_of: Query<'w, 's, Read<ChildOf>>,
-    armor: Query<'w, 's, Read<ArmorOwned>>,
+    armor: Query<'w, 's, Read<Armor>>,
     vertex: Query<'w, 's, Read<VertexData>>,
     light_strip: Query<'w, 's, Read<LightStrip>>,
     names: Query<'w, 's, Read<Name>>,

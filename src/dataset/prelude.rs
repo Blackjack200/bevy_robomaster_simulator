@@ -3,7 +3,7 @@ use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, Sn
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{
-    ArmorLabel, ArmorOwned, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
+    Armor, ArmorLabel, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
 };
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -167,7 +167,7 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 fn capture(
-    root_data: Extract<Query<(Entity, &ArmorOwned, &ArmorRoot)>>,
+    root_data: Extract<Query<(Entity, &Armor, &ArmorRoot)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
@@ -179,7 +179,7 @@ fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (vertex_entity, &ArmorOwned(ref ident, team, typ, label), root) in root_data.iter() {
+    for (vertex_entity, armor, root) in root_data.iter() {
         let all_in_frustum = |global_transform: &GlobalTransform,
                               unmapped: &[Vec3]|
          -> Option<Vec<(Vec3, (u32, u32))>> {
@@ -211,7 +211,7 @@ fn capture(
         let (tf, MarkerData(markers)) = marker_data.get(marker).unwrap();
 
         // DEBUG: 打印 marker 坐标诊断信息
-        println!("=== MARKER DEBUG for {} ===", ident.identifier);
+        println!("=== MARKER DEBUG for {} ===", armor.name);
         println!(
             "MARKER GlobalTransform: translation={:?}, rotation={:?}",
             tf.translation(),
@@ -231,16 +231,16 @@ fn capture(
             camera_pos,
             camera_global_transform.forward().as_vec3(),
             &marker_ordered,
-            ident.identifier.as_str(),
+            armor.name.as_str(),
             vertex_entity,
             vert.as_slice(),
         ) {
             continue;
         }
-        armor_screen.entry(team).or_insert(default()).push((
-            typ,
-            label,
-            match team {
+        armor_screen.entry(armor.team).or_insert(default()).push((
+            armor.armor_type,
+            armor.label,
+            match armor.team {
                 Team::Red => ArmorColor::Red,
                 Team::Blue => ArmorColor::Blue,
             },

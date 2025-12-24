@@ -3,7 +3,7 @@ use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, SystemCursorIcon, Window};
 
 use crate::components::SlapperInfantry;
-use crate::robomaster::prelude::{ArmorLabel, ArmorOwned, ArmorRoot};
+use crate::robomaster::prelude::{Armor, ArmorLabel, ArmorRoot};
 use crate::statistic::ProjectileStatistics;
 
 fn create_help_text(auto_aim: bool, stats: &ProjectileStatistics) -> Text {
@@ -51,7 +51,7 @@ pub fn change_appearance(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     armor: Query<&mut ArmorRoot, With<SlapperInfantry>>,
-    owned: Query<&mut ArmorOwned, With<SlapperInfantry>>,
+    owned: Query<&mut Armor, With<SlapperInfantry>>,
 ) {
     if keyboard.pressed(KeyCode::ShiftLeft) && keyboard.just_pressed(KeyCode::KeyC) {
         let mut n_type = None;
@@ -65,7 +65,7 @@ pub fn change_appearance(
         }
         if let Some(n_type) = n_type {
             for mut own in owned {
-                own.3 = n_type;
+                own.label = n_type;
             }
         }
     }
