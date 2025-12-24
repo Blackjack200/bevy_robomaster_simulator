@@ -117,7 +117,7 @@ impl ShmRegion {
     /// # Safety
     /// 调用者必须确保类型 T 与共享内存布局匹配
     pub unsafe fn as_ref<T>(&self) -> &T {
-        &*(self.mmap.as_ptr() as *const T)
+        unsafe { &*(self.mmap.as_ptr() as *const T) }
     }
 
     /// 将共享内存解释为指定类型 (可变)
@@ -125,7 +125,7 @@ impl ShmRegion {
     /// # Safety
     /// 调用者必须确保类型 T 与共享内存布局匹配
     pub unsafe fn as_mut<T>(&mut self) -> &mut T {
-        &mut *(self.mmap.as_ptr() as *mut T)
+        unsafe { &mut *(self.mmap.as_ptr() as *mut T) }
     }
 
     /// 刷新内存映射到文件
