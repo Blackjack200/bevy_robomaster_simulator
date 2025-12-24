@@ -1,4 +1,5 @@
 use crate::MainCamera;
+use crate::capture::CaptureCamera;
 use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
@@ -170,7 +171,7 @@ fn capture(
     root_data: Extract<Query<(Entity, &ArmorOwned, &ArmorRoot)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
-    camera: Extract<Single<(&Projection, &GlobalTransform), With<MainCamera>>>,
+    camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
     mut occlusion: Extract<Occlusion>,
     config: Res<CaptureConfig>,
     armor_r: Res<Data>,

@@ -267,8 +267,8 @@ impl ArmorConstructor<'_, '_> {
 
 /// 从Mesh中提取所有顶点
 pub fn extract_vertices(mesh: &Mesh) -> Option<Vec<Vec3>> {
-    mesh.attributes()
-        .find_map(|(_, values)| {
+    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        .and_then(|values| {
             if let VertexAttributeValues::Float32x3(vec) = values {
                 Some(vec.iter().map(|&p| Vec3::from(p)).collect())
             } else {
