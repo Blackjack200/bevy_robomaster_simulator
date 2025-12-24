@@ -1,0 +1,288 @@
+use avian3d::prelude::*;
+use bevy::anti_alias::fxaa::Fxaa;
+use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::prelude::*;
+use bevy::scene::{SceneInstance, SceneInstanceReady};
+use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
+use std::collections::HashMap;
+
+use crate::components::{
+    Controlled, GameLayer, Infantry, InfantryChassis, InfantryGimbal, InfantryLaunchOffset,
+    InfantryViewOffset, MainCamera, PreciousCollision, SlapperInfantry,
+};
+use crate::config::SimulationConfig;
+use crate::robomaster::prelude::{
+    INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, ScanArmor, Team,
+};
+use crate::robomaster::vehicle::movement::VehicleDynamic;
+use crate::systems::spawn_text;
+use crate::util::entity_query::HierarchyQuery;
+
+#[derive(Component)]
+pub struct ScanOutpost;
+
+pub fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    config: Res<SimulationConfig>,
+    mut egui_global_settings: ResMut<EguiGlobalSettings>,
+) {
+    egui_global_settings.auto_create_primary_context = false;
+    spawn_text(&mut commands);
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(0.9, 0.95, 1.0),
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)),
+    ));
+
+    let layer_env = CollisionLayers::new(
+        [GameLayer::Environment],
+        [
+            GameLayer::Default,
+            GameLayer::Vehicle,
+            GameLayer::ProjectileSelf,
+            GameLayer::ProjectileOther,
+        ],
+    );
+
+    let trimesh = || {
+        ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
+            TrimeshFlags::all(),
+        ))
+    };
+    let voxel = |size| {
+        ColliderConstructorHierarchy::new(ColliderConstructor::VoxelizedTrimeshFromMesh {
+            voxel_size: size,
+            fill_mode: FillMode::FloodFill {
+                detect_cavities: true,
+            },
+        })
+    };
+
+    commands.spawn((
+        SceneRoot(asset_server.load("GROUND.glb#Scene0")),
+        Transform::IDENTITY,
+        Friction::new(0.5),
+        PreciousCollision(HashMap::from([(
+            "GROUND_DENSE".to_string(),
+            (
+                trimesh(),
+                layer_env,
+                Visibility::Visible,
+                Some(RigidBody::Static),
+            ),
+        )])),
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
+        Transform::IDENTITY
+            .with_scale(Vec3::splat(1.0))
+            .with_translation(Vec3::new(1.0, 0.5, 1.0)),
+    ));
+
+    commands.spawn((
+        RigidBody::Static,
+        SceneRoot(asset_server.load("OUTPOST.glb#Scene0")),
+        Transform::IDENTITY,
+        ScanOutpost,
+    ));
+
+    let mut power_rune_col = HashMap::from([(
+        "BASE".to_string(),
+        (
+            trimesh(),
+            layer_env,
+            Visibility::Visible,
+            Some(RigidBody::Static),
+        ),
+    )]);
+    for i in 1..=2 {
+        for j in 1..=5 {
+            for k in ["ACTIVATED", "ACTIVE", "COMPLETED", "DISABLED"] {
+                power_rune_col.insert(
+                    format!("FACE_{}_TARGET_{}_{}", i, j, k).to_string(),
+                    (voxel(0.015), layer_env, Visibility::Visible, None),
+                );
+            }
+        }
+    }
+    commands.spawn((
+        RigidBody::Static,
+        CollisionMargin(0.001),
+        Restitution::ZERO,
+        SceneRoot(asset_server.load("POWER.glb#Scene0")),
+        Transform::IDENTITY,
+        PowerRuneRoot,
+        PreciousCollision(power_rune_col),
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        Transform::from_xyz(0.0, 1.0, 0.0),
+        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
+        Controlled,
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        Transform::from_xyz(1.0, 1.0, 1.0),
+        Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
+        SlapperInfantry,
+    ));
+
+    let mut _ent = commands.spawn((
+        Camera3d::default(),
+        Camera::default(),
+        PrimaryEguiContext,
+        Projection::Perspective(PerspectiveProjection {
+            fov: config.camera.fov.to_radians(),
+            near: 0.1,
+            far: 500000000.0,
+            ..default()
+        }),
+        Msaa::Off,
+        Tonemapping::None,
+        Fxaa::default(),
+        Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        MainCamera {
+            follow_offset: Vec3::from_array(config.camera.follow_offset),
+        },
+    ));
+    #[cfg(any(feature = "ros2", feature = "talos"))]
+    _ent.insert(crate::capture::CaptureSource);
+}
+
+pub fn setup_ground(
+    events: On<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    name: Query<&Name>,
+    ground: Single<Entity, With<ScanOutpost>>,
+) {
+    let root = events.entity;
+    if ground.into_inner() != root {
+        return;
+    }
+    children.iter_descendants(root).for_each(|e| {
+        let Ok(name) = name.get(e) else {
+            return;
+        };
+        if name.as_str() == "OUTPOST_1" {
+            commands.entity(e).insert(OutpostRoot(Team::Blue));
+        }
+        if name.as_str() == "OUTPOST_2" {
+            commands.entity(e).insert(OutpostRoot(Team::Red));
+        }
+    })
+}
+
+pub fn setup_vehicle(
+    events: On<SceneInstanceReady>,
+    mut commands: Commands,
+    query: HierarchyQuery,
+    root_query: Query<(Entity, &Infantry, Option<&Controlled>)>,
+    _secondary_query: Query<&ChildOf, (Without<Infantry>, Without<SceneInstance>)>,
+    _node_query: Query<(&Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
+    sim_config: Res<SimulationConfig>,
+) {
+    let root = events.entity;
+    if root_query.get(root).is_err() {
+        return;
+    }
+    let (root, &Infantry(team, config), is_local) = root_query.get(root).unwrap();
+    let is_local = is_local.is_some();
+    if is_local {
+        query.children.iter_descendants(root).for_each(|e| {
+            commands.entity(e).insert(Controlled);
+        });
+    } else {
+        query.children.iter_descendants(root).for_each(|e| {
+            commands.entity(e).insert(SlapperInfantry);
+        });
+    }
+    commands.entity(root).insert((
+        RigidBody::Dynamic,
+        VehicleDynamic::new(
+            sim_config.vehicle.max_speed,
+            sim_config.vehicle.linear_acceleration,
+            sim_config.vehicle.acceleration_exponent,
+        ),
+        Collider::compound(vec![
+            (
+                Vec3::new(0.0, 0.115649, 0.0),
+                Quat::IDENTITY,
+                Collider::cylinder(0.1040215, 0.364237),
+            ),
+            (
+                Vec3::new(0.0, -0.115649, 0.0),
+                Quat::IDENTITY,
+                Collider::cylinder(0.2593615, 0.231298),
+            ),
+        ]),
+        CollisionMargin(0.005),
+        CollisionLayers::new(
+            GameLayer::Vehicle,
+            [
+                GameLayer::Default,
+                GameLayer::Vehicle,
+                GameLayer::ProjectileOther,
+                GameLayer::Environment,
+            ],
+        ),
+        Mass(25.0),
+        Restitution::new(0.01),
+        AngularDamping(50.0),
+    ));
+
+    let iter = query.of(root).any().exact("VEHICLE").flatten();
+    let base = iter.clone().exact("BASE").one().unwrap();
+    commands.entity(base).insert((
+        InfantryChassis::default(),
+        ScanArmor(team, config.0, config.1),
+    ));
+    let gimbal = iter.exact("GIMBAL").one().unwrap();
+    commands.entity(gimbal).insert(InfantryGimbal::default());
+    if is_local {
+        let q = query.of(gimbal).flatten();
+        commands
+            .entity(q.clone().exact("SHOT_DIRECTION").one().unwrap())
+            .insert(InfantryLaunchOffset);
+        commands
+            .entity(q.exact("CAM_DIRECTION").one().unwrap())
+            .insert(InfantryViewOffset);
+    }
+}
+
+pub fn setup_collision(
+    events: On<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    name: Query<&Name, With<Children>>,
+    root_query: Query<(Entity, &PreciousCollision)>,
+) {
+    let Ok((_, PreciousCollision(map))) = root_query.get(events.entity) else {
+        return;
+    };
+    for e in children.iter_descendants(events.entity) {
+        let Ok(name) = name.get(e) else {
+            continue;
+        };
+        if let Some((constructor, layer, visibility, rigid)) = map.get(&name.to_string()) {
+            if let Some(rigid) = rigid {
+                commands
+                    .entity(e)
+                    .insert((*rigid, constructor.clone(), *layer));
+            } else {
+                commands.entity(e).insert((constructor.clone(), *layer));
+            }
+            if visibility == &Visibility::Hidden {
+                commands.entity(e).insert(*visibility);
+            }
+        }
+    }
+    commands.entity(events.entity).remove::<PreciousCollision>();
+}

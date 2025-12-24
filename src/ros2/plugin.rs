@@ -1,14 +1,15 @@
+use crate::arc_mutex;
 use crate::capture::driver::CaptureConfig;
 use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
+use crate::components::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset};
+use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::prelude::AverageRateLimiter;
 use crate::ros2::prelude::transform;
 use crate::ros2::topic::*;
+use crate::systems::projectile_launch;
 use crate::util::entity_query::HierarchyQuery;
-use crate::{
-    Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, arc_mutex, projectile_launch,
-};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -351,7 +352,7 @@ impl Plugin for ROS2Plugin {
                     camera_info,
                     image_raw,
                     image_compressed,
-                    fov_y: PI / 180.0 * 45.0,
+                    fov_y: SimulationConfig::default().camera.fov.to_radians(),
                     publish_compressed: false,
                 },
             })

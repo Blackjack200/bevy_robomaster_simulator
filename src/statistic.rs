@@ -1,30 +1,25 @@
-static mut LAUNCH_COUNT: u32 = 0;
-static mut ACCURATE_COUNT: u32 = 0;
+use bevy::prelude::*;
 
-pub fn increase_launch() {
-    unsafe {
-        LAUNCH_COUNT += 1;
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource)]
+pub struct ProjectileStatistics {
+    pub launch_count: u32,
+    pub accurate_count: u32,
+}
+
+impl ProjectileStatistics {
+    pub fn increase_launch(&mut self) {
+        self.launch_count += 1;
     }
-}
 
-pub fn launch_count() -> u32 {
-    unsafe { LAUNCH_COUNT }
-}
-
-pub fn increase_accurate() {
-    unsafe {
-        ACCURATE_COUNT += 1;
+    pub fn increase_accurate(&mut self) {
+        self.accurate_count += 1;
     }
-}
 
-pub fn accurate_count() -> u32 {
-    unsafe { ACCURATE_COUNT }
-}
-
-pub fn accurate_pct() -> f32 {
-    let l = launch_count();
-    if l == 0 {
-        return 0.0;
+    pub fn accurate_pct(&self) -> f32 {
+        if self.launch_count == 0 {
+            return 0.0;
+        }
+        (self.accurate_count as f32) / (self.launch_count as f32)
     }
-    (accurate_count() as f32) / (launch_count() as f32)
 }

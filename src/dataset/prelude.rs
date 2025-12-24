@@ -1,4 +1,3 @@
-use crate::MainCamera;
 use crate::capture::CaptureCamera;
 use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
 use crate::dataset::occlusion::Occlusion;

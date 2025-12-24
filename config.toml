@@ -1,0 +1,27 @@
+# Bevy RoboMaster Simulator Configuration
+
+[physics]
+substep_count = 10              # physics substeps per frame
+
+[vehicle]
+rotation_speed = 3.0            # rad/s - chassis rotation speed
+gimbal_rotation_speed = 3.0     # rad/s - gimbal rotation speed
+gimbal_pitch_limit = 0.785      # rad - gimbal pitch limit (~45 degrees)
+max_speed = 4.0                 # m/s - maximum vehicle speed
+linear_acceleration = 8.0       # m/s^2 - linear acceleration
+acceleration_exponent = 10.0    # exponent for non-linear acceleration curve
+
+[projectile]
+lifetime = 5.0                  # seconds - projectile lifetime
+speed = 25.0                    # m/s - initial speed
+cooldown = 0.1                  # seconds - fire cooldown
+diameter = 0.017                # meters - projectile diameter (17mm)
+mass = 0.017                    # kg - projectile mass (17g)
+friction = 1.1                  # friction coefficient
+linear_damping = 0.05           # linear damping
+
+[camera]
+fov = 45.0                      # degrees - field of view
+free_move_speed = 8.0           # m/s - free camera movement speed
+follow_offset = [0.0, 3.0, 2.0] # follow camera offset
+mouse_sensitivity = 0.003       # mouse look sensitivity

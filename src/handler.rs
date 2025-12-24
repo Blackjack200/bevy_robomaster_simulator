@@ -3,14 +3,14 @@ use bevy::{
     audio::AudioPlayer,
     ecs::{
         observer::On,
-        system::{Commands, Query, Res},
+        system::{Commands, Query, Res, ResMut},
     },
     transform::components::Transform,
 };
 
 use crate::{
     robomaster::prelude::{PowerRune, RuneActivated, RuneHit},
-    statistic::increase_accurate,
+    statistic::ProjectileStatistics,
 };
 
 pub fn on_activate(
@@ -25,12 +25,17 @@ pub fn on_activate(
     commands.spawn(AudioPlayer::new(asset_server.load("rune_activated.ogg")));
 }
 
-pub fn on_hit(ev: On<RuneHit>, _commands: Commands, query: Query<(&Transform, &PowerRune)>) {
+pub fn on_hit(
+    ev: On<RuneHit>,
+    mut stats: ResMut<ProjectileStatistics>,
+    _commands: Commands,
+    query: Query<(&Transform, &PowerRune)>,
+) {
     let Ok((_transform, _rune)) = query.get(ev.rune) else {
         return;
     };
     if ev.result.accurate {
-        increase_accurate();
+        stats.increase_accurate();
         //commands.spawn(AudioPlayer::new(asset_server.load("rune_activated.ogg")));
     }
 }

@@ -10,6 +10,16 @@ pub struct VehicleDynamic {
     n: f32,
 }
 
+impl VehicleDynamic {
+    pub fn new(max_speed: f32, linear_acceleration: f32, acceleration_exponent: f32) -> Self {
+        Self {
+            max_speed,
+            linear_acceleration,
+            n: acceleration_exponent,
+        }
+    }
+}
+
 impl Default for VehicleDynamic {
     fn default() -> Self {
         Self {

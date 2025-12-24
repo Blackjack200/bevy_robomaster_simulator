@@ -1,4 +1,4 @@
-use crate::Controlled;
+use crate::components::Controlled;
 use crate::robomaster::prelude::{ArmorOwned, LightStrip, Side, VertexData};
 use bevy::{
     ecs::system::{SystemParam, lifetimeless::Read},

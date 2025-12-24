@@ -1,10 +1,12 @@
 use crate::capture::driver::CaptureConfig;
-use crate::capture::{IMAGE_HEIGHT, IMAGE_WIDTH};
+use crate::capture::{CaptureCamera, IMAGE_HEIGHT, IMAGE_WIDTH};
+use crate::components::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset};
+use crate::config::SimulationConfig;
+use crate::systems::projectile_launch;
 use crate::talos::capture::{TalosCaptureContext, TalosCapturePlugin};
 use crate::talos::layout::*;
 use crate::talos::publisher::ShmPublisher;
 use crate::talos::subscriber::ShmSubscriber;
-use crate::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, projectile_launch};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -35,10 +37,11 @@ pub struct TalosPluginConfig {
 
 impl Default for TalosPluginConfig {
     fn default() -> Self {
+        let config = SimulationConfig::default();
         Self {
             width: IMAGE_WIDTH,
             height: IMAGE_HEIGHT,
-            fov_y: PI / 180.0 * 45.0,
+            fov_y: config.camera.fov.to_radians(),
             texture_format: TextureFormat::bevy_default(),
         }
     }
@@ -145,9 +148,8 @@ pub fn publish_pose(
     quaternion: [f32; 4],
     timestamp_ns: u64,
 ) {
-    if let Ok(mut publisher) = context.publisher.lock() {
-        publisher.publish_pose(index, position, quaternion, timestamp_ns);
-    }
+    let mut publisher = context.publisher.lock().unwrap();
+    publisher.publish_pose(index, position, quaternion, timestamp_ns);
 }
 
 pub fn recv_gimbal_cmd(subscriber: &ShmSubscriberRes) -> Option<GimbalCmd> {
@@ -156,18 +158,21 @@ pub fn recv_gimbal_cmd(subscriber: &ShmSubscriberRes) -> Option<GimbalCmd> {
 
 fn publish_gimbal_pose_system(
     context: Option<Res<TalosCaptureContext>>,
-    gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
+    camera: Single<&GlobalTransform, With<CaptureCamera>>,
 ) {
+    println!("wtf");
     let Some(ctx) = context else { return };
-    let transform = gimbal.into_inner();
+
+    let transform = camera.into_inner();
 
     let translation = transform.translation();
     let rotation = transform.rotation();
     let timestamp_ns = now_ns();
 
+    println!("pub");
     publish_pose(
         &ctx,
-        PoseIndex::Gimbal,
+        PoseIndex::Camera,
         [translation.x, translation.y, translation.z],
         [rotation.w, rotation.x, rotation.y, rotation.z],
         timestamp_ns,
