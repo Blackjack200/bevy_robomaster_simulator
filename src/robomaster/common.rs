@@ -20,13 +20,15 @@ pub type RobotConfig = (ArmorType, ArmorLabel, usize);
 
 pub const HERO_ROBOT_CONFIG: RobotConfig = (ArmorType::Large, ArmorLabel::HeroOne, 4);
 pub const ENGINEER_ROBOT_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::EngineerG, 4);
-pub const INFANTRY_THREE_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryThree, 4);
-pub const INFANTRY_FOUR_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryFour, 4);
+pub const INFANTRY_THREE_CONFIG: RobotConfig =
+    (ArmorType::Small, ArmorLabel::InfantryOrHeroThree, 4);
+pub const INFANTRY_FOUR_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryOrHeroFour, 4);
 
 pub const SENTINEL_ROBOT_TWO_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryTwo, 4);
 pub const SENTINEL_ROBOT_THREE_CONFIG: RobotConfig =
-    (ArmorType::Small, ArmorLabel::InfantryThree, 4);
-pub const SENTINEL_ROBOT_FOUR_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryFour, 4);
+    (ArmorType::Small, ArmorLabel::InfantryOrHeroThree, 4);
+pub const SENTINEL_ROBOT_FOUR_CONFIG: RobotConfig =
+    (ArmorType::Small, ArmorLabel::InfantryOrHeroFour, 4);
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Robot {

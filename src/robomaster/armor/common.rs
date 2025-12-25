@@ -15,9 +15,9 @@ pub enum ArmorLabel {
     /// 2号标签 - 🎯步兵机器人专用（3号机）
     InfantryTwo = 2,
     /// 3号标签 - 🎯步兵机器人专用（4号机）
-    InfantryThree = 3,
+    InfantryOrHeroThree = 3,
     /// 4号标签 - 🎯步兵机器人备用编号
-    InfantryFour = 4,
+    InfantryOrHeroFour = 4,
     /// O号标签 - 🏰前哨站装甲模块
     OutpostZeo = 5,
     /// Bs号标签 - 🏠基地小装甲模块
@@ -25,7 +25,7 @@ pub enum ArmorLabel {
     /// Bb号标签 - 🏠基地大装甲模块
     BaseLarge = 7,
 
-    LegacyFive = 255,
+    HeroLegacyFive = 255,
 }
 
 impl ArmorLabel {
@@ -34,12 +34,12 @@ impl ArmorLabel {
             ArmorLabel::EngineerG,
             ArmorLabel::HeroOne,
             ArmorLabel::InfantryTwo,
-            ArmorLabel::InfantryThree,
-            ArmorLabel::InfantryFour,
+            ArmorLabel::InfantryOrHeroThree,
+            ArmorLabel::InfantryOrHeroFour,
             ArmorLabel::OutpostZeo,
             ArmorLabel::BaseSmall,
             ArmorLabel::BaseLarge,
-            ArmorLabel::LegacyFive,
+            ArmorLabel::HeroLegacyFive,
         ]
     }
 
@@ -48,12 +48,12 @@ impl ArmorLabel {
             ArmorLabel::EngineerG => 0,
             ArmorLabel::HeroOne => 1,
             ArmorLabel::InfantryTwo => 2,
-            ArmorLabel::InfantryThree => 3,
-            ArmorLabel::InfantryFour => 4,
+            ArmorLabel::InfantryOrHeroThree => 3,
+            ArmorLabel::InfantryOrHeroFour => 4,
             ArmorLabel::OutpostZeo => 5,
             ArmorLabel::BaseSmall => 6,
             ArmorLabel::BaseLarge => 8,
-            ArmorLabel::LegacyFive => 7,
+            ArmorLabel::HeroLegacyFive => 7,
         }
     }
 }

@@ -215,19 +215,28 @@ impl ArmorConstructor<'_, '_> {
             vertex
         });
         let sticker = ArmorSticker({
-            let c_query = query!(root_query, .."_C", ref);
+            let c_query = query!(root_query, .."_C", ref).flatten();
             c_query.clone().any().into_iter().for_each(|e| {
                 self.commands.entity(e).insert(Visibility::Hidden);
             });
-            HashMap::from([
-                (ArmorLabel::BaseSmall, query!(c_query, .."B")?),
-                (ArmorLabel::EngineerG, query!(c_query, .."G")?),
-                (ArmorLabel::OutpostZeo, query!(c_query, .."O")?),
-                (ArmorLabel::InfantryTwo, query!(c_query, .."2")?),
-                (ArmorLabel::InfantryThree, query!(c_query, .."3")?),
-                (ArmorLabel::InfantryFour, query!(c_query, .."4")?),
-                (ArmorLabel::LegacyFive, query!(c_query, .."5")?),
-            ])
+            match armor_data.1 {
+                ArmorType::Small => HashMap::from([
+                    (ArmorLabel::BaseSmall, query!(c_query, .."B")?),
+                    (ArmorLabel::EngineerG, query!(c_query, .."G")?),
+                    (ArmorLabel::OutpostZeo, query!(c_query, .."O")?),
+                    (ArmorLabel::InfantryTwo, query!(c_query, .."2")?),
+                    (ArmorLabel::InfantryOrHeroThree, query!(c_query, .."3")?),
+                    (ArmorLabel::InfantryOrHeroFour, query!(c_query, .."4")?),
+                    (ArmorLabel::HeroLegacyFive, query!(c_query, .."5")?),
+                ]),
+                ArmorType::Large => HashMap::from([
+                    (ArmorLabel::HeroOne, query!(c_query, .."1")?),
+                    (ArmorLabel::InfantryOrHeroThree, query!(c_query, .."3")?),
+                    (ArmorLabel::InfantryOrHeroFour, query!(c_query, .."4")?),
+                    (ArmorLabel::HeroLegacyFive, query!(c_query, .."5")?),
+                    (ArmorLabel::BaseLarge, query!(c_query, .."B")?),
+                ]),
+            }
         });
 
         self.commands.entity(root).insert(Armor {

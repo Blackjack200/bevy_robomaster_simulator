@@ -12,7 +12,7 @@ use crate::components::{
 };
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{
-    INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, ScanArmor, Team,
+    HERO_ROBOT_CONFIG, INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, ScanArmor, Team,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::systems::spawn_text;
@@ -127,10 +127,19 @@ pub fn setup(
         Controlled,
     ));
 
+    /*
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
         Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
+        SlapperInfantry,
+    ));
+    */
+
+    commands.spawn((
+        SceneRoot(asset_server.load("HERO.glb#Scene0")),
+        Transform::from_xyz(2.0, 1.0, 1.0),
+        Infantry(Team::Blue, HERO_ROBOT_CONFIG),
         SlapperInfantry,
     ));
 
