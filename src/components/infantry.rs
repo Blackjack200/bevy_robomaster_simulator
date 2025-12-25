@@ -27,3 +27,7 @@ pub struct InfantryLaunchOffset;
 
 #[derive(Component)]
 pub struct SlapperInfantry;
+
+/// Marker for the currently active (controlled) SlapperInfantry
+#[derive(Component)]
+pub struct ActiveSlapper;

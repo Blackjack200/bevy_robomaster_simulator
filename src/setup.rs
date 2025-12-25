@@ -7,8 +7,8 @@ use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use std::collections::HashMap;
 
 use crate::components::{
-    Controlled, GameLayer, Infantry, InfantryChassis, InfantryGimbal, InfantryLaunchOffset,
-    InfantryViewOffset, MainCamera, PreciousCollision, SlapperInfantry,
+    ActiveSlapper, Controlled, GameLayer, Infantry, InfantryChassis, InfantryGimbal,
+    InfantryLaunchOffset, InfantryViewOffset, MainCamera, PreciousCollision, SlapperInfantry,
 };
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{
@@ -127,20 +127,19 @@ pub fn setup(
         Controlled,
     ));
 
-    /*
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
         Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
         SlapperInfantry,
     ));
-    */
 
     commands.spawn((
         SceneRoot(asset_server.load("HERO.glb#Scene0")),
         Transform::from_xyz(2.0, 1.0, 1.0),
         Infantry(Team::Blue, HERO_ROBOT_CONFIG),
         SlapperInfantry,
+        ActiveSlapper,
     ));
 
     let mut _ent = commands.spawn((
@@ -193,7 +192,12 @@ pub fn setup_vehicle(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
     query: HierarchyQuery,
-    root_query: Query<(Entity, &Infantry, Option<&Controlled>)>,
+    root_query: Query<(
+        Entity,
+        &Infantry,
+        Option<&Controlled>,
+        Option<&ActiveSlapper>,
+    )>,
     _secondary_query: Query<&ChildOf, (Without<Infantry>, Without<SceneInstance>)>,
     _node_query: Query<(&Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
     sim_config: Res<SimulationConfig>,
@@ -202,8 +206,9 @@ pub fn setup_vehicle(
     if root_query.get(root).is_err() {
         return;
     }
-    let (root, &Infantry(team, config), is_local) = root_query.get(root).unwrap();
+    let (root, &Infantry(team, config), is_local, is_active) = root_query.get(root).unwrap();
     let is_local = is_local.is_some();
+    let is_active = is_active.is_some();
     if is_local {
         query.children.iter_descendants(root).for_each(|e| {
             commands.entity(e).insert(Controlled);
@@ -211,6 +216,9 @@ pub fn setup_vehicle(
     } else {
         query.children.iter_descendants(root).for_each(|e| {
             commands.entity(e).insert(SlapperInfantry);
+            if is_active {
+                commands.entity(e).insert(ActiveSlapper);
+            }
         });
     }
     commands.entity(root).insert((

@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
-use crate::components::{Controlled, Infantry, InfantryChassis, InfantryGimbal, SlapperInfantry};
+use crate::components::{
+    ActiveSlapper, Controlled, Infantry, InfantryChassis, InfantryGimbal, SlapperInfantry,
+};
 use crate::config::SimulationConfig;
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use avian3d::prelude::*;
@@ -78,15 +80,15 @@ pub fn remote_vehicle_controls(
     config: Res<SimulationConfig>,
     infantry: Single<
         (Forces, &Mass, &mut VehicleDynamic),
-        (With<SlapperInfantry>, With<Infantry>, Without<Controlled>),
+        (With<ActiveSlapper>, With<Infantry>, Without<Controlled>),
     >,
     gimbal: Single<
         (&GlobalTransform, &InfantryGimbal),
-        (With<SlapperInfantry>, Without<InfantryChassis>),
+        (With<ActiveSlapper>, Without<InfantryChassis>),
     >,
     chassis: Single<
         (&mut Transform, &mut InfantryChassis),
-        (With<SlapperInfantry>, Without<InfantryGimbal>),
+        (With<ActiveSlapper>, Without<InfantryGimbal>),
     >,
 ) {
     let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
@@ -145,7 +147,7 @@ pub fn remote_gimbal_controls(
     config: Res<SimulationConfig>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
-        (With<SlapperInfantry>, Without<InfantryChassis>),
+        (With<ActiveSlapper>, Without<InfantryChassis>),
     >,
 ) {
     let dt = time.delta_secs();
@@ -168,4 +170,43 @@ pub fn remote_gimbal_controls(
         Quat::from_euler(EulerRot::YXZ, gimbal_data.local_yaw, gimbal_data.pitch, 0.0);
 
     gimbal_transform.rotation = gimbal_rotation;
+}
+
+pub fn switch_slapper_control(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    children: Query<&Children>,
+    slapper_roots: Query<Entity, (With<Infantry>, With<SlapperInfantry>)>,
+    active_root: Query<Entity, (With<Infantry>, With<SlapperInfantry>, With<ActiveSlapper>)>,
+) {
+    if !keyboard.just_pressed(KeyCode::Tab) {
+        return;
+    }
+
+    let roots: Vec<Entity> = slapper_roots.iter().collect();
+    if roots.len() <= 1 {
+        return;
+    }
+
+    let current = active_root.single().ok();
+    let current_idx = current.and_then(|e| roots.iter().position(|&r| r == e));
+    let next_idx = match current_idx {
+        Some(idx) => (idx + 1) % roots.len(),
+        None => 0,
+    };
+
+    // Remove ActiveSlapper from current
+    if let Some(current_root) = current {
+        commands.entity(current_root).remove::<ActiveSlapper>();
+        for descendant in children.iter_descendants(current_root) {
+            commands.entity(descendant).remove::<ActiveSlapper>();
+        }
+    }
+
+    // Add ActiveSlapper to next
+    let next_root = roots[next_idx];
+    commands.entity(next_root).insert(ActiveSlapper);
+    for descendant in children.iter_descendants(next_root) {
+        commands.entity(descendant).insert(ActiveSlapper);
+    }
 }

@@ -34,7 +34,8 @@ use crate::statistic::ProjectileStatistics;
 use crate::systems::{
     GameplaySystems, change_appearance, cleanup_projectiles, following_controls, freecam_controls,
     gimbal_controls, projectile_launch, remote_gimbal_controls, remote_vehicle_controls,
-    screenshot_on_f2, screenshot_saving, setup_projectile, update_help_text, vehicle_controls,
+    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control,
+    update_help_text, vehicle_controls,
 };
 
 #[cfg(feature = "ros2")]
@@ -95,6 +96,7 @@ fn main() {
             // Input phase
             (
                 following_controls,
+                switch_slapper_control,
                 vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
                 remote_vehicle_controls,
                 gimbal_controls,
