@@ -131,6 +131,15 @@ fn process_subscription(
             w.run_system_once(projectile_launch).unwrap();
         });
     }
+    let yaw_f32 = (cmd.yaw_deg).to_radians();
+    let pitch_f32 = (cmd.pitch_deg - 90.0).to_radians();
+    // gimbal_data.local_yaw = yaw_f32;
+    // gimbal_data.pitch = pitch_f32;
+    let expected_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
+    let current_rotation = muzzle_offset.0.rotation();
+    let delta = expected_rotation * current_rotation.inverse();
+    //gimbal_transform.rotation = delta * gimbal_transform.rotation;
+    info!("yaw={} pitch={}", cmd.yaw_deg, cmd.pitch_deg);
 }
 
 fn heartbeat_system(context: Option<Res<TalosCaptureContext>>) {
