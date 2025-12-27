@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, SystemCursorIcon, Window};
 
-use crate::components::SlapperInfantry;
+use crate::components::{SlapperInfantry, SubscribeAutoAim};
 use crate::robomaster::prelude::{Armor, ArmorLabel, ArmorRoot};
 use crate::statistic::ProjectileStatistics;
 
@@ -29,21 +29,13 @@ pub fn spawn_text(commands: &mut Commands) {
     ));
 }
 
-#[cfg(feature = "ros2")]
 pub fn update_help_text(
     mut text: Query<&mut Text>,
-    auto_aim: Res<crate::ros2::plugin::SubscribeAutoAim>,
+    auto_aim: Res<SubscribeAutoAim>,
     stats: Res<ProjectileStatistics>,
 ) {
     for mut text in text.iter_mut() {
         *text = create_help_text(auto_aim.load(std::sync::atomic::Ordering::Acquire), &stats);
-    }
-}
-
-#[cfg(not(feature = "ros2"))]
-pub fn update_help_text(mut text: Query<&mut Text>, stats: Res<ProjectileStatistics>) {
-    for mut text in text.iter_mut() {
-        *text = create_help_text(false, &stats);
     }
 }
 

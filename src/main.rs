@@ -23,8 +23,9 @@ use bevy::render::RenderSystems;
 use bevy::window::PresentMode;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use std::sync::atomic::AtomicBool;
 
-use crate::components::{CameraMode, FollowingType, ProjectileCooldown};
+use crate::components::{CameraMode, FollowingType, ProjectileCooldown, SubscribeAutoAim};
 use crate::config::{ConfigPlugin, SimulationConfig};
 use crate::dataset::prelude::DatasetPlugin;
 use crate::handler::{on_activate, on_hit};
@@ -32,10 +33,10 @@ use crate::robomaster::prelude::RoboMasterPlugins;
 use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
 use crate::statistic::ProjectileStatistics;
 use crate::systems::{
-    GameplaySystems, change_appearance, cleanup_projectiles, following_controls, freecam_controls,
-    gimbal_controls, projectile_launch, remote_gimbal_controls, remote_vehicle_controls,
-    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control,
-    update_help_text, vehicle_controls,
+    GameplaySystems, auto_aim_switch, change_appearance, cleanup_projectiles, following_controls,
+    freecam_controls, gimbal_controls, projectile_launch, remote_gimbal_controls,
+    remote_vehicle_controls, screenshot_on_f2, screenshot_saving, setup_projectile,
+    switch_slapper_control, update_help_text, vehicle_controls,
 };
 
 #[cfg(feature = "ros2")]
@@ -70,6 +71,7 @@ fn main() {
     .register_type::<ProjectileStatistics>()
     .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
     .insert_resource(SubstepCount(config.physics.substep_count))
+    .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
     .insert_resource(ProjectileCooldown(Timer::from_seconds(
         config.projectile.cooldown,
         TimerMode::Once,
@@ -95,6 +97,7 @@ fn main() {
         (
             // Input phase
             (
+                auto_aim_switch,
                 following_controls,
                 switch_slapper_control,
                 vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),

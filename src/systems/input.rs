@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use std::sync::atomic::Ordering;
 
 use crate::components::{
     ActiveSlapper, Controlled, Infantry, InfantryChassis, InfantryGimbal, SlapperInfantry,
+    SubscribeAutoAim,
 };
 use crate::config::SimulationConfig;
 use crate::robomaster::vehicle::movement::VehicleDynamic;
@@ -34,6 +36,17 @@ macro_rules! input {
         }
         input
     }};
+}
+
+pub fn auto_aim_switch(keyboard: Res<ButtonInput<KeyCode>>, enabled: Res<SubscribeAutoAim>) {
+    if keyboard.just_pressed(KeyCode::F5) {
+        info!("Toggling auto-aim subscription.");
+        let new_state = !enabled.fetch_xor(true, Ordering::AcqRel);
+        info!(
+            "Auto-aim subscription is now {}.",
+            if new_state { "ENABLED" } else { "DISABLED" }
+        );
+    }
 }
 
 pub fn vehicle_controls(

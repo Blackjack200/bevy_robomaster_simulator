@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use std::sync::atomic::AtomicBool;
 
 #[derive(Component)]
 pub struct MainCamera {
@@ -13,6 +14,9 @@ impl Default for CameraMode {
         Self(FollowingType::Robot)
     }
 }
+
+#[derive(Resource, Deref, DerefMut)]
+pub struct SubscribeAutoAim(pub AtomicBool);
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum FollowingType {

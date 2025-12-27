@@ -1,7 +1,9 @@
 use crate::arc_mutex;
 use crate::capture::driver::CaptureConfig;
 use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
-use crate::components::{Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset};
+use crate::components::{
+    Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim,
+};
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
@@ -308,9 +310,6 @@ fn cleanup_ros2_system(
     }
 }
 
-#[derive(Resource, Deref, DerefMut)]
-pub struct SubscribeAutoAim(AtomicBool);
-
 #[derive(Default)]
 pub struct ROS2Plugin {}
 
@@ -339,7 +338,6 @@ impl Plugin for ROS2Plugin {
 
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
-            .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
             .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
             .add_plugins(RosCapturePlugin {
                 config: CaptureConfig {
@@ -361,19 +359,6 @@ impl Plugin for ROS2Plugin {
                 Update,
                 process_subscription
                     .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
-            )
-            .add_systems(
-                Update,
-                |keyboard: Res<ButtonInput<KeyCode>>, enabled: Res<SubscribeAutoAim>| {
-                    if keyboard.just_pressed(KeyCode::F5) {
-                        info!("Toggling auto-aim subscription.");
-                        let new_state = !enabled.fetch_xor(true, Ordering::AcqRel);
-                        info!(
-                            "Auto-aim subscription is now {}.",
-                            if new_state { "ENABLED" } else { "DISABLED" }
-                        );
-                    }
-                },
             )
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
