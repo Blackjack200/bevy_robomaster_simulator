@@ -30,14 +30,6 @@ pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);
 #[derive(Resource, Deref, DerefMut)]
 pub struct TalosEnabled(pub AtomicBool);
 
-#[derive(Resource)]
-pub struct GimbalTargetRotation {
-    pub target_yaw: f32,
-    pub target_pitch: f32,
-    pub smoothing_speed: f32,
-    pub timeout_timer: Timer,
-}
-
 pub struct TalosPluginConfig {
     pub width: u32,
     pub height: u32,
@@ -104,23 +96,14 @@ impl Plugin for TalosPlugin {
         }
 
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
-        app.insert_resource(GimbalTargetRotation {
-            target_yaw: 0.0,
-            target_pitch: 0.0,
-            smoothing_speed: 10.0,
-            timeout_timer: Timer::from_seconds(0.5, TimerMode::Once), // 500ms超时
-        });
         app.add_systems(Last, heartbeat_system);
         app.add_systems(
             Update,
             (
                 process_subscription
                     .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
-                smooth_gimbal_rotation_system
-                    .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
-                publish_gimbal_pose_system.after(TransformSystems::Propagate),
-            )
-                .chain(),
+                publish_gimbal_pose_system,
+            ),
         );
     }
 }
@@ -128,22 +111,23 @@ impl Plugin for TalosPlugin {
 fn process_subscription(
     context: Option<Res<ShmSubscriberRes>>,
     mut commands: Commands,
-    mut target_rotation: Option<ResMut<GimbalTargetRotation>>,
     gimbal: Single<
-        &InfantryGimbal,
+        (&mut Transform, &mut InfantryGimbal),
         (
             With<Controlled>,
             Without<InfantryChassis>,
             Without<InfantryLaunchOffset>,
         ),
     >,
+    muzzle_offset: Single<
+        (&GlobalTransform, &Transform),
+        (With<InfantryLaunchOffset>, With<Controlled>),
+    >,
 ) {
     let Some(ctx) = context else {
         return;
     };
-    let Some(ref mut target) = target_rotation else {
-        return;
-    };
+    let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
 
     let Some(cmd) = recv_gimbal_cmd(&ctx) else {
         return;
@@ -158,57 +142,13 @@ fn process_subscription(
     }
     let yaw_f32 = (cmd.yaw_deg).to_radians();
     let pitch_f32 = (-cmd.pitch_deg - 90.0).to_radians();
-
-    // 设置目标而不是直接应用
-    target.target_yaw = yaw_f32;
-    target.target_pitch = pitch_f32;
-    target.timeout_timer.reset(); // 重置超时计时器
-
-    info!("target yaw={} pitch={}", cmd.yaw_deg, cmd.pitch_deg);
-}
-
-fn smooth_gimbal_rotation_system(
-    mut target_rotation: Option<ResMut<GimbalTargetRotation>>,
-    time: Res<Time>,
-    mut gimbal: Single<
-        (&mut Transform, &mut InfantryGimbal),
-        (
-            With<Controlled>,
-            Without<InfantryChassis>,
-            Without<InfantryLaunchOffset>,
-        ),
-    >,
-    muzzle_offset: Single<
-        (&GlobalTransform, &Transform),
-        (With<InfantryLaunchOffset>, With<Controlled>),
-    >,
-) {
-    let Some(ref mut target) = target_rotation else {
-        return;
-    };
-
-    // 更新超时计时器
-    target.timeout_timer.tick(time.delta());
-
-    // 如果超时了就不执行转动
-    if target.timeout_timer.is_finished() {
-        return;
-    }
-
-    let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
-    let delta_time = time.delta_secs();
-
-    // 计算目标旋转
-    let target_quat = Quat::from_euler(EulerRot::YXZ, target.target_yaw, target.target_pitch, 0.0);
+    gimbal_data.local_yaw = yaw_f32;
+    gimbal_data.pitch = pitch_f32;
+    let expected_rotation = Quat::from_euler(EulerRot::YXZ, yaw_f32, pitch_f32, 0.0);
     let current_rotation = muzzle_offset.0.rotation();
-    let target_delta = target_quat * current_rotation.inverse();
-    let target_gimbal_rotation = target_delta * gimbal_transform.rotation;
-
-    let t = (target.smoothing_speed * delta_time).min(1.0);
-    gimbal_transform.rotation = gimbal_transform.rotation.slerp(target_gimbal_rotation, t);
-
-    gimbal_data.local_yaw = gimbal_data.local_yaw.lerp(target.target_yaw, t);
-    gimbal_data.pitch = gimbal_data.pitch.lerp(target.target_pitch, t);
+    let delta = expected_rotation * current_rotation.inverse();
+    gimbal_transform.rotation = delta * gimbal_transform.rotation;
+    info!("yaw={} pitch={}", cmd.yaw_deg, cmd.pitch_deg);
 }
 
 fn heartbeat_system(context: Option<Res<TalosCaptureContext>>) {
