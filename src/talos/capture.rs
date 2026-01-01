@@ -22,7 +22,9 @@ fn now_ns() -> u64 {
         .unwrap_or(0)
 }
 
-struct TalosSnapshotSync;
+struct TalosSnapshotSync {
+    timestamp_ns: u64,
+}
 
 impl SnapshotSync for TalosSnapshotSync {
     fn captured(
@@ -31,12 +33,16 @@ impl SnapshotSync for TalosSnapshotSync {
         _config: &CaptureConfig,
     ) -> Box<dyn SnapshotAsync> {
         let ctx = world.resource::<TalosCaptureContextShared>().0.clone();
-        Box::new(TalosSnapshot { ctx })
+        Box::new(TalosSnapshot {
+            ctx,
+            timestamp_ns: self.timestamp_ns,
+        })
     }
 }
 
 struct TalosSnapshot {
     ctx: Arc<Mutex<ShmPublisher>>,
+    timestamp_ns: u64,
 }
 
 impl SnapshotAsync for TalosSnapshot {
@@ -61,8 +67,7 @@ impl SnapshotAsync for TalosSnapshot {
 
         let seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut publisher) = self.ctx.lock() {
-            let timestamp_ns = now_ns();
-            publisher.publish_image(image, seq, timestamp_ns);
+            publisher.publish_image(image, seq, self.timestamp_ns);
         }
     }
 }
@@ -72,7 +77,9 @@ struct TalosSnapshotCreator {}
 
 impl GpuCaptureHandler for TalosSnapshotCreator {
     fn captured(&self, _world: &World) -> Option<Box<dyn SnapshotSync>> {
-        Some(Box::new(TalosSnapshotSync))
+        Some(Box::new(TalosSnapshotSync {
+            timestamp_ns: now_ns(),
+        }))
     }
 }
 
