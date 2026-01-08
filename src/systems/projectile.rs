@@ -70,7 +70,7 @@ pub fn projectile_launch(
             GameLayer::ProjectileSelf,
             [
                 GameLayer::Default,
-                GameLayer::Vehicle,
+                GameLayer::VehicleOther,
                 GameLayer::ProjectileSelf,
                 GameLayer::ProjectileOther,
                 GameLayer::Environment,

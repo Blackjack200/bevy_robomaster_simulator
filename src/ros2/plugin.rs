@@ -136,6 +136,18 @@ fn capture_rune(
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
+
+    // Debug output for ROS2
+    info!(
+        "[ROS2] ODOM pos: [{:.4}, {:.4}, {:.4}]",
+        gimbal.translation().x,
+        gimbal.translation().y,
+        gimbal.translation().z
+    );
+    info!(
+        "[ROS2] CAMERA_REL pos: [{:.4}, {:.4}, {:.4}]",
+        cam_rel.translation.x, cam_rel.translation.y, cam_rel.translation.z
+    );
     let mut targets = targets.into_iter().fold(
         HashMap::<&PowerRune, Vec<(String, Transform)>>::new(),
         |mut map, (tf, target, name)| {
@@ -154,6 +166,27 @@ fn capture_rune(
             ));
             map
         },
+    );
+
+    info!(
+        "[ROS2] ODOM pos: [{:.4}, {:.4}, {:.4}]",
+        gimbal.translation().x,
+        gimbal.translation().y,
+        gimbal.translation().z
+    );
+    info!(
+        "[ROS2] MUZZLE pos: [{:.4}, {:.4}, {:.4}]",
+        muzzle_rel.translation.x, muzzle_rel.translation.y, muzzle_rel.translation
+    );
+    let rot = (gimbal.rotation()
+        * muzzle_offset.1.rotation
+        * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0))
+    .to_euler(EulerRot::ZXY);
+    info!(
+        "[ROS2] GIMBAL rpy: [{:.4}, {:.4}, {:.4}]",
+        rot.0.to_degrees(),
+        rot.1.to_degrees(),
+        rot.2.to_degrees()
     );
 
     let transform_stamped = tf_tree! {
@@ -339,21 +372,6 @@ impl Plugin for ROS2Plugin {
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
-            .add_plugins(RosCapturePlugin {
-                config: CaptureConfig {
-                    width: IMAGE_WIDTH,
-                    height: IMAGE_HEIGHT,
-                    texture_format: TextureFormat::bevy_default(),
-                },
-                context: RosCaptureContext {
-                    clock,
-                    camera_info,
-                    image_raw,
-                    image_compressed,
-                    fov_y: SimulationConfig::default().camera.fov.to_radians(),
-                    publish_compressed: false,
-                },
-            })
             .add_systems(Last, cleanup_ros2_system)
             .add_systems(
                 Update,

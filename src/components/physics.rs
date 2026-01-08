@@ -6,7 +6,8 @@ use std::collections::HashMap;
 pub enum GameLayer {
     #[default]
     Default,
-    Vehicle,
+    VehicleSelf,
+    VehicleOther,
     ProjectileSelf,
     ProjectileOther,
     Environment,

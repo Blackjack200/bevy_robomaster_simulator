@@ -42,7 +42,8 @@ pub fn setup(
         [GameLayer::Environment],
         [
             GameLayer::Default,
-            GameLayer::Vehicle,
+            GameLayer::VehicleSelf,
+            GameLayer::VehicleOther,
             GameLayer::ProjectileSelf,
             GameLayer::ProjectileOther,
         ],
@@ -221,6 +222,21 @@ pub fn setup_vehicle(
             }
         });
     }
+    let vehicle_layers = if is_local {
+        GameLayer::VehicleSelf
+    } else {
+        GameLayer::VehicleOther
+    };
+    let vehicle_filters = [
+        GameLayer::Default,
+        GameLayer::VehicleSelf,
+        GameLayer::VehicleOther,
+        GameLayer::ProjectileSelf,
+        GameLayer::ProjectileOther,
+        GameLayer::Environment,
+    ];
+    let vehicle_collision_layers = CollisionLayers::new(vehicle_layers, vehicle_filters);
+
     commands.entity(root).insert((
         RigidBody::Dynamic,
         VehicleDynamic::new(
@@ -241,19 +257,15 @@ pub fn setup_vehicle(
             ),
         ]),
         CollisionMargin(0.005),
-        CollisionLayers::new(
-            GameLayer::Vehicle,
-            [
-                GameLayer::Default,
-                GameLayer::Vehicle,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        ),
+        vehicle_collision_layers,
         Mass(25.0),
         Restitution::new(0.01),
         AngularDamping(50.0),
     ));
+
+    query.children.iter_descendants(root).for_each(|e| {
+        commands.entity(e).insert(vehicle_collision_layers);
+    });
 
     let iter = query.of(root).any().exact("VEHICLE").flatten();
     let base = iter.clone().exact("BASE").one().unwrap();

@@ -5,7 +5,9 @@ use crate::capture::{
 };
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::talos::layout::*;
+use crate::talos::plugin::publish_gimbal_pose_system;
 use crate::talos::publisher::ShmPublisher;
+use bevy::ecs::system::RunSystemOnce;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::render::RenderApp;

@@ -148,7 +148,7 @@ fn process_subscription(
     let current_rotation = muzzle_offset.0.rotation();
     let delta = expected_rotation * current_rotation.inverse();
     gimbal_transform.rotation = delta * gimbal_transform.rotation;
-    info!("yaw={} pitch={}", cmd.yaw_deg, cmd.pitch_deg);
+    //info!("yaw={} pitch={}", cmd.yaw_deg, cmd.pitch_deg);
 }
 
 fn heartbeat_system(context: Option<Res<TalosCaptureContext>>) {
@@ -201,7 +201,7 @@ fn to_ros_quat(quat: Quat) -> Quat {
     new_rotation
 }
 
-fn publish_gimbal_pose_system(
+pub(super) fn publish_gimbal_pose_system(
     context: Option<Res<TalosCaptureContext>>,
     camera: Single<&GlobalTransform, With<CaptureSource>>,
     gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
@@ -217,26 +217,44 @@ fn publish_gimbal_pose_system(
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
     let timestamp_ns = now_ns();
+
+    // Debug output for TALOS
+    info!(
+        "[TALOS] CAMERA_REL pos: [{:.4}, {:.4}, {:.4}]",
+        cam_rel.translation.x, cam_rel.translation.y, cam_rel.translation.z
+    );
     {
-        let gimbal_ros = to_ros(gimbal.compute_transform());
+        info!(
+            "[TALOS] ODOM pos: [{:.4}, {:.4}, {:.4}]",
+            gimbal.translation().x,
+            gimbal.translation().y,
+            gimbal.translation().z
+        );
+        let gimbal_ros = to_ros_translation(gimbal.translation());
         publish_pose(
             &ctx,
             PoseIndex::Odom,
-            [
-                gimbal_ros.translation.x,
-                gimbal_ros.translation.y,
-                gimbal_ros.translation.z,
-            ],
+            [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
             [1.0, 0.0, 0.0, 0.0],
             timestamp_ns,
         );
     }
     {
-        let gimbal_rot = to_ros_quat(
-            gimbal.rotation()
-                * muzzle_offset.1.rotation
-                * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0),
+        let gimbal_rot = gimbal.rotation()
+            * muzzle_offset.1.rotation
+            * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0);
+        let euler = gimbal_rot.to_euler(EulerRot::ZXY);
+        info!(
+            "[TALOS] GIMBAL rot: quat=[{:.4}, {:.4}, {:.4}, {:.4}] rpy=[{:.2}, {:.2}, {:.2}]",
+            gimbal_rot.w,
+            gimbal_rot.x,
+            gimbal_rot.y,
+            gimbal_rot.z,
+            euler.0.to_degrees(),
+            euler.1.to_degrees(),
+            euler.2.to_degrees()
         );
+        let gimbal_rot = to_ros_quat(gimbal_rot);
         publish_pose(
             &ctx,
             PoseIndex::Gimbal,
@@ -246,31 +264,28 @@ fn publish_gimbal_pose_system(
         );
     }
     {
-        let gimbal_rot = to_ros(gimbal.compute_transform()).rotation;
+        let vec3 = to_ros_translation(muzzle_rel.translation);
         publish_pose(
             &ctx,
             PoseIndex::Muzzle,
-            [
-                muzzle_rel.translation.x,
-                muzzle_rel.translation.y,
-                muzzle_rel.translation.z,
-            ],
-            [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
+            [vec3.x, vec3.y, vec3.z],
+            [1.0, 0.0, 0.0, 0.0],
             timestamp_ns,
         );
     }
     {
-        let camera = to_ros(cam_rel);
-        let quat = to_ros_quat(Quat::from_euler(EulerRot::ZYX, -PI / 2.0, PI, PI / 2.0));
+        let camera = to_ros_translation(cam_rel.translation);
+        info!(
+            "[TALOS] CAMERA pos: [{:.4}, {:.4}, {:.4}]",
+            camera.x, camera.y, camera.z
+        );
+        // Send camera_link pose with IDENTITY rotation (same as ros2)
+        // camera_optical rotation is handled by talos-cpp's static TF
         publish_pose(
             &ctx,
             PoseIndex::Camera,
-            [
-                camera.translation.x,
-                camera.translation.y,
-                camera.translation.z,
-            ],
-            [quat.w, quat.x, quat.y, quat.z],
+            [camera.x, camera.y, camera.z],
+            [1.0, 0.0, 0.0, 0.0], // Quat::IDENTITY, matching ros2
             timestamp_ns,
         );
     }

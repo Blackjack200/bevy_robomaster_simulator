@@ -36,7 +36,7 @@ fn handle_rune_collision(
     mut commands: Commands,
     mut runes: Query<&mut PowerRune>,
     targets: Query<&RuneIndex>,
-    projectiles: Query<(), With<Projectile>>,
+    projectiles: Query<Entity, With<Projectile>>,
     child_of: Query<&ChildOf>,
     mut appearance: StatefulAppearance,
 ) {
@@ -44,9 +44,9 @@ fn handle_rune_collision(
         return;
     }
     let projectile = event.body1.unwrap();
-    if !projectiles.contains(projectile) {
+    let Ok(projectile_entity) = projectiles.get(projectile) else {
         return;
-    }
+    };
     for ancestor in child_of.iter_ancestors(event.collider2) {
         let Ok(&RuneIndex(index, rune_ent)) = targets.get(ancestor) else {
             return;
@@ -66,12 +66,20 @@ fn handle_rune_collision(
                 });
             }
             MechanismState::Activating(_) => {
+                // Disable collision events for this projectile so it only counts once
+                commands
+                    .entity(projectile_entity)
+                    .remove::<CollisionEventsEnabled>();
                 commands.trigger(RuneHit {
                     rune: rune_ent,
                     result,
                 });
             }
             MechanismState::Activated { .. } => {
+                // Disable collision events for this projectile so it only counts once
+                commands
+                    .entity(projectile_entity)
+                    .remove::<CollisionEventsEnabled>();
                 if result.change_state {
                     commands.trigger(RuneActivated { rune: rune_ent });
                 } else {
