@@ -127,11 +127,16 @@ pub fn gimbal_controls(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     config: Res<SimulationConfig>,
+    // enabled: Res<SubscribeAutoAim>,
     gimbal: Single<
         (&mut Transform, &mut InfantryGimbal),
         (With<Controlled>, Without<InfantryChassis>),
     >,
 ) {
+    //if enabled.load(Ordering::Acquire) {
+    //    return;
+    //}
+
     let dt = time.delta_secs();
     let (mut gimbal_transform, mut gimbal_data) = gimbal.into_inner();
 

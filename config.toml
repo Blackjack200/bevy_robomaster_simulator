@@ -4,21 +4,27 @@
 substep_count = 10              # physics substeps per frame
 
 [vehicle]
-rotation_speed = 3.0            # rad/s - chassis rotation speed
+rotation_speed = 4.0            # rad/s - chassis rotation speed
 gimbal_rotation_speed = 3.0     # rad/s - gimbal rotation speed
 gimbal_pitch_limit = 0.785      # rad - gimbal pitch limit (~45 degrees)
 max_speed = 4.0                 # m/s - maximum vehicle speed
-linear_acceleration = 8.0       # m/s^2 - linear acceleration
-acceleration_exponent = 10.0    # exponent for non-linear acceleration curve
+linear_acceleration = 6.0       # m/s^2 - linear acceleration
+acceleration_exponent = 6.0    # exponent for non-linear acceleration curve
 
 [projectile]
 lifetime = 5.0                  # seconds - projectile lifetime
 speed = 25.0                    # m/s - initial speed
-cooldown = 0.1                  # seconds - fire cooldown
+cooldown = 0.05                  # seconds - fire cooldown
 diameter = 0.017                # meters - projectile diameter (17mm)
-mass = 0.017                    # kg - projectile mass (17g)
+mass = 0.0032                    # kg - projectile mass (17g)
 friction = 1.1                  # friction coefficient
-linear_damping = 0.05           # linear damping
+linear_damping = 0.0            # linear damping (set to 0 for physics-based drag below)
+
+[projectile.aerodynamics]
+enabled = false                  # enable aerodynamic forces
+air_density = 1.225             # kg/m^3 - air density at sea level
+drag_coefficient = 0.22516         # Cd - smooth sphere drag coefficient
+wind = [0.0, 0.0, 0.0]          # m/s - wind velocity in world coordinates
 
 [camera]
 fov = 45.0                      # degrees - field of view

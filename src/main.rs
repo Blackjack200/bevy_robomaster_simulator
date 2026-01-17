@@ -34,9 +34,9 @@ use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
 use crate::statistic::ProjectileStatistics;
 use crate::systems::{
     GameplaySystems, auto_aim_switch, change_appearance, cleanup_projectiles, following_controls,
-    freecam_controls, gimbal_controls, projectile_launch, remote_gimbal_controls,
-    remote_vehicle_controls, screenshot_on_f2, screenshot_saving, setup_projectile,
-    switch_slapper_control, update_help_text, vehicle_controls,
+    freecam_controls, gimbal_controls, projectile_aerodynamics, projectile_launch,
+    remote_gimbal_controls, remote_vehicle_controls, screenshot_on_f2, screenshot_saving,
+    setup_projectile, switch_slapper_control, update_help_text, vehicle_controls,
 };
 
 #[cfg(feature = "ros2")]
@@ -131,7 +131,8 @@ fn main() {
         projectile_launch
             .after(TransformSystems::Propagate)
             .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
-    );
+    )
+    .add_systems(FixedUpdate, projectile_aerodynamics);
 
     #[cfg(feature = "ros2")]
     {

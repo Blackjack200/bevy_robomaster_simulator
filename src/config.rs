@@ -37,6 +37,30 @@ pub struct ProjectileConfig {
     pub mass: f32,
     pub friction: f32,
     pub linear_damping: f32,
+    #[serde(default)]
+    pub aerodynamics: ProjectileAerodynamicsConfig,
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+pub struct ProjectileAerodynamicsConfig {
+    pub enabled: bool,
+    pub air_density: f32,
+    pub drag_coefficient: f32,
+    pub wind: [f32; 3],
+}
+
+impl Default for ProjectileAerodynamicsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            // kg/m^3 - air density at sea level (15°C)
+            air_density: 1.225,
+            // Drag coefficient for a smooth sphere, typical Re for 17mm @ ~25m/s.
+            drag_coefficient: 0.47,
+            // m/s - wind velocity in world coordinates.
+            wind: [0.0, 0.0, 0.0],
+        }
+    }
 }
 
 #[derive(Deserialize, Reflect, Clone)]
@@ -75,7 +99,8 @@ impl Default for SimulationConfig {
                     diameter: 0.017,
                     mass: 0.017,
                     friction: 1.1,
-                    linear_damping: 0.05,
+                    linear_damping: 0.0,
+                    aerodynamics: ProjectileAerodynamicsConfig::default(),
                 },
                 camera: CameraConfig {
                     fov: 45.0,

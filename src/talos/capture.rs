@@ -1,21 +1,36 @@
 use crate::capture::{
-    CameraFov, ImageHandle, compute_camera_intrinsics,
+    CameraFov, CaptureSource, ImageHandle, compute_camera_intrinsics,
     driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
     setup_capture_camera, sync_capture_camera,
 };
+use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::talos::layout::*;
-use crate::talos::plugin::publish_gimbal_pose_system;
+use crate::talos::plugin::{to_ros_quat, to_ros_translation};
 use crate::talos::publisher::ShmPublisher;
-use bevy::ecs::system::RunSystemOnce;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::render::RenderApp;
+use bevy::render::{Extract, ExtractSchedule, RenderApp};
+use std::f32::consts::PI;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Shared timestamp for synchronizing pose and image publication.
+/// Updated by TalosSnapshotCreator, read by publish_gimbal_pose_system.
+pub static SHARED_TIMESTAMP_NS: AtomicU64 = AtomicU64::new(0);
+
+/// Extracted pose data from MainApp to RenderApp for synchronized publishing
+#[derive(Resource, Clone, Default)]
+pub struct ExtractedPoseData {
+    pub gimbal_translation: Vec3,
+    pub gimbal_rotation: Quat,
+    pub muzzle_rel_translation: Vec3,
+    pub camera_rel_translation: Vec3,
+    pub valid: bool,
+}
 
 fn now_ns() -> u64 {
     SystemTime::now()
@@ -34,7 +49,53 @@ impl SnapshotSync for TalosSnapshotSync {
         world: &mut DeferredWorld,
         _config: &CaptureConfig,
     ) -> Box<dyn SnapshotAsync> {
+        // Store timestamp for backward compatibility
+        SHARED_TIMESTAMP_NS.store(self.timestamp_ns, Ordering::Release);
+
         let ctx = world.resource::<TalosCaptureContextShared>().0.clone();
+        let pose_data = world.resource::<ExtractedPoseData>().clone();
+
+        // Publish pose data with the same timestamp as the image
+        if pose_data.valid {
+            if let Ok(mut publisher) = ctx.lock() {
+                // Odom
+                let gimbal_ros = to_ros_translation(pose_data.gimbal_translation);
+                publisher.publish_pose(
+                    PoseIndex::Odom,
+                    [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.timestamp_ns,
+                );
+
+                // Gimbal rotation
+                let gimbal_rot = to_ros_quat(pose_data.gimbal_rotation);
+                publisher.publish_pose(
+                    PoseIndex::Gimbal,
+                    [0.0, 0.0, 0.0],
+                    [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
+                    self.timestamp_ns,
+                );
+
+                // Muzzle
+                let muzzle = to_ros_translation(pose_data.muzzle_rel_translation);
+                publisher.publish_pose(
+                    PoseIndex::Muzzle,
+                    [muzzle.x, muzzle.y, muzzle.z],
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.timestamp_ns,
+                );
+
+                // Camera
+                let camera = to_ros_translation(pose_data.camera_rel_translation);
+                publisher.publish_pose(
+                    PoseIndex::Camera,
+                    [camera.x, camera.y, camera.z],
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.timestamp_ns,
+                );
+            }
+        }
+
         Box::new(TalosSnapshot {
             ctx,
             timestamp_ns: self.timestamp_ns,
@@ -140,6 +201,45 @@ impl Plugin for TalosCapturePlugin {
 
         app.sub_app_mut(RenderApp)
             .insert_resource(TalosCaptureContextShared(self.context.publisher.clone()))
-            .insert_resource(self.context.clone());
+            .insert_resource(self.context.clone())
+            .insert_resource(ExtractedPoseData::default())
+            .add_systems(ExtractSchedule, extract_pose_data);
     }
+}
+
+/// Extract pose data from MainApp to RenderApp
+fn extract_pose_data(
+    mut pose_data: ResMut<ExtractedPoseData>,
+    camera: Extract<Query<&GlobalTransform, With<CaptureSource>>>,
+    gimbal: Extract<Query<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>>,
+    muzzle_offset: Extract<
+        Query<(&GlobalTransform, &Transform), (With<InfantryLaunchOffset>, With<Controlled>)>,
+    >,
+) {
+    let Ok(cam_transform) = camera.single() else {
+        pose_data.valid = false;
+        return;
+    };
+    let Ok(gimbal_transform) = gimbal.single() else {
+        pose_data.valid = false;
+        return;
+    };
+    let Ok((muzzle_global, muzzle_local)) = muzzle_offset.single() else {
+        pose_data.valid = false;
+        return;
+    };
+
+    let cam_rel = cam_transform.reparented_to(gimbal_transform);
+    let muzzle_rel = muzzle_global.reparented_to(gimbal_transform);
+
+    // Compute gimbal rotation (same as in plugin.rs)
+    let gimbal_rot = gimbal_transform.rotation()
+        * muzzle_local.rotation
+        * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0);
+
+    pose_data.gimbal_translation = gimbal_transform.translation();
+    pose_data.gimbal_rotation = gimbal_rot;
+    pose_data.muzzle_rel_translation = muzzle_rel.translation;
+    pose_data.camera_rel_translation = cam_rel.translation;
+    pose_data.valid = true;
 }

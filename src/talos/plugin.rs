@@ -17,13 +17,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
 #[derive(Resource)]
 pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);
 
@@ -98,7 +91,7 @@ impl Plugin for TalosPlugin {
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
         app.add_systems(Last, heartbeat_system);
         app.add_systems(
-            Update,
+            Last,
             (
                 process_subscription
                     .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
@@ -188,20 +181,29 @@ pub fn to_ros(bevy_transform: Transform) -> Transform {
     Transform::from_translation(new_translation).with_rotation(new_rotation)
 }
 
-fn to_ros_translation(vec3: Vec3) -> Vec3 {
+pub fn to_ros_translation(vec3: Vec3) -> Vec3 {
     let align_rot_mat = M_ALIGN_MAT3;
     let new_translation = align_rot_mat * vec3;
     new_translation
 }
 
-fn to_ros_quat(quat: Quat) -> Quat {
+pub fn to_ros_quat(quat: Quat) -> Quat {
     let align_rot_mat = M_ALIGN_MAT3;
     let align_quat = Quat::from_mat3(&align_rot_mat);
     let new_rotation = align_quat * quat * align_quat.inverse();
     new_rotation
 }
 
-pub(super) fn publish_gimbal_pose_system(
+fn now_ns() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// High-frequency pose publishing (every frame in Last schedule)
+/// Uses current timestamp, independent of image capture
+fn publish_gimbal_pose_system(
     context: Option<Res<TalosCaptureContext>>,
     camera: Single<&GlobalTransform, With<CaptureSource>>,
     gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
@@ -216,20 +218,10 @@ pub(super) fn publish_gimbal_pose_system(
     let gimbal = gimbal.into_inner();
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
+
     let timestamp_ns = now_ns();
 
-    // Debug output for TALOS
-    info!(
-        "[TALOS] CAMERA_REL pos: [{:.4}, {:.4}, {:.4}]",
-        cam_rel.translation.x, cam_rel.translation.y, cam_rel.translation.z
-    );
     {
-        info!(
-            "[TALOS] ODOM pos: [{:.4}, {:.4}, {:.4}]",
-            gimbal.translation().x,
-            gimbal.translation().y,
-            gimbal.translation().z
-        );
         let gimbal_ros = to_ros_translation(gimbal.translation());
         publish_pose(
             &ctx,
@@ -243,17 +235,6 @@ pub(super) fn publish_gimbal_pose_system(
         let gimbal_rot = gimbal.rotation()
             * muzzle_offset.1.rotation
             * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0);
-        let euler = gimbal_rot.to_euler(EulerRot::ZXY);
-        info!(
-            "[TALOS] GIMBAL rot: quat=[{:.4}, {:.4}, {:.4}, {:.4}] rpy=[{:.2}, {:.2}, {:.2}]",
-            gimbal_rot.w,
-            gimbal_rot.x,
-            gimbal_rot.y,
-            gimbal_rot.z,
-            euler.0.to_degrees(),
-            euler.1.to_degrees(),
-            euler.2.to_degrees()
-        );
         let gimbal_rot = to_ros_quat(gimbal_rot);
         publish_pose(
             &ctx,
@@ -275,17 +256,11 @@ pub(super) fn publish_gimbal_pose_system(
     }
     {
         let camera = to_ros_translation(cam_rel.translation);
-        info!(
-            "[TALOS] CAMERA pos: [{:.4}, {:.4}, {:.4}]",
-            camera.x, camera.y, camera.z
-        );
-        // Send camera_link pose with IDENTITY rotation (same as ros2)
-        // camera_optical rotation is handled by talos-cpp's static TF
         publish_pose(
             &ctx,
             PoseIndex::Camera,
             [camera.x, camera.y, camera.z],
-            [1.0, 0.0, 0.0, 0.0], // Quat::IDENTITY, matching ros2
+            [1.0, 0.0, 0.0, 0.0],
             timestamp_ns,
         );
     }

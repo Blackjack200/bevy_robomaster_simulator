@@ -1,5 +1,6 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use core::f32::consts::PI;
 
 use crate::components::{
     Controlled, GameLayer, Infantry, InfantryChassis, InfantryGimbal, InfantryLaunchOffset,
@@ -89,6 +90,39 @@ pub fn projectile_launch(
         )),
         Projectile,
     ));
+}
+
+pub fn projectile_aerodynamics(
+    config: Res<SimulationConfig>,
+    mut projectiles: Query<Forces, With<Projectile>>,
+) {
+    let aero = &config.projectile.aerodynamics;
+    if !aero.enabled {
+        return;
+    }
+
+    let diameter = config.projectile.diameter;
+    if diameter <= 0.0 {
+        return;
+    }
+    let air_density = aero.air_density.max(0.0);
+    let drag_coefficient = aero.drag_coefficient.max(0.0);
+    if air_density == 0.0 || drag_coefficient == 0.0 {
+        return;
+    }
+
+    let area = PI * (diameter * 0.5).powi(2);
+    let wind = Vec3::new(aero.wind[0], aero.wind[1], aero.wind[2]);
+    let k = 0.5 * air_density * drag_coefficient * area;
+
+    for mut forces in projectiles.iter_mut() {
+        let v_rel = forces.linear_velocity() - wind;
+        let speed = v_rel.length();
+        if speed <= 1e-3 {
+            continue;
+        }
+        forces.apply_force(-k * speed * v_rel);
+    }
 }
 
 pub fn cleanup_projectiles(

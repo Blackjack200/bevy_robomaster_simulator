@@ -1,6 +1,7 @@
 pub mod driver;
 
 use bevy::anti_alias::fxaa::Fxaa;
+use bevy::camera::RenderTarget;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
@@ -27,10 +28,8 @@ pub fn setup_capture_camera(
         Camera3d::default(),
         Bloom::NATURAL,
         Tonemapping::None,
-        Camera {
-            target: render_target_handle.0.clone().into(),
-            ..default()
-        },
+        RenderTarget::Image(render_target_handle.0.clone().into()),
+        Camera { ..default() },
         Projection::Perspective(PerspectiveProjection {
             fov: fov.0,
             near: 0.1,

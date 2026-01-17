@@ -175,7 +175,12 @@ fn receive_image_from_buffer(mut world: DeferredWorld) {
                             .cloned()
                             .collect();
                     }
-                    let mut bevy_image = Image::new_target_texture(width, height, texture_format);
+                    let mut bevy_image = Image::new_target_texture(
+                        width,
+                        height,
+                        texture_format,
+                        Some(texture_format),
+                    );
                     bevy_image.data = Some(image_data);
                     bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
                 };
@@ -210,8 +215,12 @@ impl CameraCapturePlugin {
             height: config.height,
             ..Default::default()
         };
-        let mut render_target_image =
-            Image::new_target_texture(extent.width, extent.height, config.texture_format);
+        let mut render_target_image = Image::new_target_texture(
+            extent.width,
+            extent.height,
+            config.texture_format,
+            Some(config.texture_format),
+        );
         render_target_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
         let mut images = app.world_mut().resource_mut::<Assets<Image>>();
         let handle = images.add(render_target_image);
