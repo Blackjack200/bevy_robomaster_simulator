@@ -27,7 +27,7 @@ impl<'w, 's> Occlusion<'w, 's> {
     fn sample_occluded(
         &mut self,
         camera_pos: Vec3,
-        ident: &str,
+        _ident: &str,
         armor_entity: Entity,
         side: &Side,
         _vertex_entity: Entity,
@@ -92,7 +92,7 @@ impl<'w, 's> Occlusion<'w, 's> {
                 ..default()
             },
         );
-        'h: for &(e, ref hit) in hits {
+        for &(e, ref hit) in hits {
             'g: for ancestor in self.child_of.iter_ancestors(e) {
                 let Ok(ancestor) = self.light_strip.get(ancestor) else {
                     continue 'g;
