@@ -137,14 +137,14 @@ fn capture_rune(
     let cam_rel = cam_transform.reparented_to(gimbal);
     let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
 
-    // Debug output for ROS2
-    info!(
+    // Avoid per-frame `info!` logging (it will cap FPS under ROS2 builds).
+    debug!(
         "[ROS2] ODOM pos: [{:.4}, {:.4}, {:.4}]",
         gimbal.translation().x,
         gimbal.translation().y,
         gimbal.translation().z
     );
-    info!(
+    debug!(
         "[ROS2] CAMERA_REL pos: [{:.4}, {:.4}, {:.4}]",
         cam_rel.translation.x, cam_rel.translation.y, cam_rel.translation.z
     );
@@ -168,21 +168,15 @@ fn capture_rune(
         },
     );
 
-    info!(
-        "[ROS2] ODOM pos: [{:.4}, {:.4}, {:.4}]",
-        gimbal.translation().x,
-        gimbal.translation().y,
-        gimbal.translation().z
-    );
-    info!(
+    debug!(
         "[ROS2] MUZZLE pos: [{:.4}, {:.4}, {:.4}]",
-        muzzle_rel.translation.x, muzzle_rel.translation.y, muzzle_rel.translation
+        muzzle_rel.translation.x, muzzle_rel.translation.y, muzzle_rel.translation.z
     );
     let rot = (gimbal.rotation()
         * muzzle_offset.1.rotation
         * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0))
     .to_euler(EulerRot::ZXY);
-    info!(
+    debug!(
         "[ROS2] GIMBAL rpy: [{:.4}, {:.4}, {:.4}]",
         rot.0.to_degrees(),
         rot.1.to_degrees(),

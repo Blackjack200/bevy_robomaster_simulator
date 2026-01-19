@@ -3,7 +3,7 @@
 use crate::capture::{
     CameraFov, ImageHandle, compute_camera_intrinsics,
     driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
-    setup_capture_camera, sync_capture_camera,
+    setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::ros2::image::compress_image;
@@ -113,6 +113,7 @@ impl Plugin for RosCapturePlugin {
             .insert_resource(CameraFov(self.context.fov_y))
             .insert_resource(self.context.clone())
             .add_systems(Startup, setup_capture_camera)
+            .add_systems(Startup, setup_preview_window)
             .add_systems(Update, sync_capture_camera);
         app.sub_app_mut(RenderApp)
             .insert_resource(RosCaptureContextShared(Arc::new(self.context.clone())))

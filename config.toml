@@ -1,7 +1,21 @@
 # Bevy RoboMaster Simulator Configuration
 
+[window]
+# Rendering present mode. Use `auto_no_vsync` to exceed 60Hz for Talos/ROS2 capture.
+# Options: auto_vsync, auto_no_vsync, fifo, fifo_relaxed, mailbox, immediate
+present_mode = "auto_no_vsync"
+
+[debug]
+# Turn these on only when needed; they noticeably reduce FPS.
+egui = false
+inspector = false
+
+[preview]
+# On-screen preview camera. Disable to avoid rendering the scene twice (preview + capture).
+enabled = true
+
 [physics]
-substep_count = 10              # physics substeps per frame
+substep_count = 5              # physics substeps per frame
 
 [vehicle]
 rotation_speed = 4.0            # rad/s - chassis rotation speed

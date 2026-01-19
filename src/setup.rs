@@ -25,9 +25,11 @@ pub fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     config: Res<SimulationConfig>,
-    mut egui_global_settings: ResMut<EguiGlobalSettings>,
+    egui_global_settings: Option<ResMut<EguiGlobalSettings>>,
 ) {
-    egui_global_settings.auto_create_primary_context = false;
+    if let Some(mut egui_global_settings) = egui_global_settings {
+        egui_global_settings.auto_create_primary_context = false;
+    }
     spawn_text(&mut commands);
     commands.spawn((
         DirectionalLight {
@@ -143,10 +145,18 @@ pub fn setup(
         ActiveSlapper,
     ));
 
-    let mut _ent = commands.spawn((
+    let mut main_camera = commands.spawn((
         Camera3d::default(),
-        Camera::default(),
-        PrimaryEguiContext,
+        Camera {
+            // When Talos/ROS2 capture is enabled, the actual on-screen preview is a UI blit of the
+            // off-screen capture texture. Keep this camera inactive to avoid rendering twice.
+            #[cfg(any(feature = "ros2", feature = "talos"))]
+            is_active: false,
+            #[cfg(not(any(feature = "ros2", feature = "talos")))]
+            is_active: config.preview.enabled,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
         Projection::Perspective(PerspectiveProjection {
             fov: config.camera.fov.to_radians(),
             near: 0.1,
@@ -161,8 +171,11 @@ pub fn setup(
             follow_offset: Vec3::from_array(config.camera.follow_offset),
         },
     ));
+    if config.debug.egui {
+        main_camera.insert(PrimaryEguiContext);
+    }
     #[cfg(any(feature = "ros2", feature = "talos"))]
-    _ent.insert(crate::capture::CaptureSource);
+    main_camera.insert(crate::capture::CaptureSource);
 }
 
 pub fn setup_ground(

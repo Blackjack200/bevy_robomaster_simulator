@@ -1,7 +1,7 @@
 use crate::capture::{
     CameraFov, CaptureSource, ImageHandle, compute_camera_intrinsics,
     driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
-    setup_capture_camera, sync_capture_camera,
+    setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
 use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
 use crate::dataset::prelude::DatasetSnapshotCreator;
@@ -197,6 +197,7 @@ impl Plugin for TalosCapturePlugin {
             .insert_resource(CameraFov(self.context.fov_y))
             .insert_resource(self.context.clone())
             .add_systems(Startup, setup_capture_camera)
+            .add_systems(Startup, setup_preview_window)
             .add_systems(Update, sync_capture_camera);
 
         app.sub_app_mut(RenderApp)

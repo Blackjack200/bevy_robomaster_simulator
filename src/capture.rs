@@ -29,7 +29,10 @@ pub fn setup_capture_camera(
         Bloom::NATURAL,
         Tonemapping::None,
         RenderTarget::Image(render_target_handle.0.clone().into()),
-        Camera { ..default() },
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
         Projection::Perspective(PerspectiveProjection {
             fov: fov.0,
             near: 0.1,
@@ -40,6 +43,43 @@ pub fn setup_capture_camera(
         Fxaa::default(),
         Hdr,
         CaptureCamera,
+    ));
+}
+
+#[derive(Component)]
+pub struct PreviewCamera;
+
+#[derive(Component)]
+pub struct PreviewImageNode;
+
+pub fn setup_preview_window(
+    mut commands: Commands,
+    render_target_handle: Res<ImageHandle>,
+    config: Res<crate::config::SimulationConfig>,
+) {
+    if !config.preview.enabled {
+        return;
+    }
+
+    commands.spawn((
+        Camera2d::default(),
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        PreviewCamera,
+    ));
+
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        // Render as a background; help text UI remains on top.
+        GlobalZIndex(-1),
+        ImageNode::new(render_target_handle.0.clone()),
+        PreviewImageNode,
     ));
 }
 

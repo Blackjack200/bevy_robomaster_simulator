@@ -18,6 +18,8 @@ use bevy::{
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+const MAX_IN_FLIGHT_FRAMES: usize = 2;
+
 #[derive(Resource, Clone)]
 pub struct CaptureConfig {
     pub width: u32,
@@ -35,6 +37,7 @@ struct ImageCopier {
     src_image: Handle<Image>,
     extent: Extent3d,
     queue: Mutex<VecDeque<(Buffer, Vec<DynSnapshotSync>)>>,
+    free_buffers: Arc<Mutex<Vec<Buffer>>>,
 }
 
 impl ImageCopier {
@@ -43,18 +46,69 @@ impl ImageCopier {
             src_image,
             extent,
             queue: Mutex::new(VecDeque::new()),
+            free_buffers: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
-    pub fn create_buffer(&self, render_device: &RenderDevice) -> Buffer {
-        let padded_bytes_per_row =
-            RenderDevice::align_copy_bytes_per_row(self.extent.width as usize) * 4;
+    fn acquire_buffer(&self, render_device: &RenderDevice, size: u64) -> Buffer {
+        if let Some(buf) = self.free_buffers.lock().unwrap().pop() {
+            return buf;
+        }
         render_device.create_buffer(&BufferDescriptor {
             label: None,
-            size: padded_bytes_per_row as u64 * self.extent.height as u64,
+            size,
             usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
+    }
+}
+
+fn unpad_rows(padded: &[u8], row_bytes: usize, aligned_row_bytes: usize, height: u32) -> Vec<u8> {
+    if row_bytes == aligned_row_bytes {
+        return padded.to_vec();
+    }
+    let mut out = Vec::with_capacity(row_bytes * height as usize);
+    for row in padded.chunks(aligned_row_bytes).take(height as usize) {
+        out.extend_from_slice(&row[..row_bytes.min(row.len())]);
+    }
+    out
+}
+
+fn padded_rgba_to_rgb(
+    padded: &[u8],
+    width: u32,
+    height: u32,
+    format: TextureFormat,
+) -> Option<Vec<u8>> {
+    let pixel_size = format.pixel_size().ok()?;
+    if pixel_size != 4 {
+        return None;
+    }
+    let row_bytes = width as usize * pixel_size;
+    let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
+
+    match format {
+        TextureFormat::Bgra8UnormSrgb | TextureFormat::Bgra8Unorm => {
+            let mut out = Vec::with_capacity(width as usize * height as usize * 3);
+            for row in padded.chunks(aligned_row_bytes).take(height as usize) {
+                let row = &row[..row_bytes.min(row.len())];
+                for px in row.chunks_exact(4) {
+                    out.extend_from_slice(&[px[2], px[1], px[0]]);
+                }
+            }
+            Some(out)
+        }
+        TextureFormat::Rgba8UnormSrgb | TextureFormat::Rgba8Unorm => {
+            let mut out = Vec::with_capacity(width as usize * height as usize * 3);
+            for row in padded.chunks(aligned_row_bytes).take(height as usize) {
+                let row = &row[..row_bytes.min(row.len())];
+                for px in row.chunks_exact(4) {
+                    out.extend_from_slice(&[px[0], px[1], px[2]]);
+                }
+            }
+            Some(out)
+        }
+        _ => None,
     }
 }
 
@@ -102,7 +156,8 @@ impl render_graph::Node for ImageCopyDriver {
         let snapshot: Vec<DynSnapshotSync> = hdr
             .map(|hdr| hdr.iter().filter_map(|v| v.captured(world)).collect())
             .unwrap_or_default();
-        let buffer = image_copier.create_buffer(render_context.render_device());
+        let buffer_size = padded_bytes_per_row as u64 * src_image.size.height as u64;
+        let buffer = image_copier.acquire_buffer(render_context.render_device(), buffer_size);
 
         render_context.command_encoder().copy_texture_to_buffer(
             src_image.texture.as_image_copy(),
@@ -125,6 +180,14 @@ impl render_graph::Node for ImageCopyDriver {
             .lock()
             .unwrap()
             .push_back((buffer, snapshot));
+
+        // Keep only a small number of in-flight readbacks; drop old frames to avoid stalls/jitter.
+        let mut queue = image_copier.queue.lock().unwrap();
+        while queue.len() > MAX_IN_FLIGHT_FRAMES {
+            if let Some((buffer, _)) = queue.pop_front() {
+                image_copier.free_buffers.lock().unwrap().push(buffer);
+            }
+        }
         Ok(())
     }
 }
@@ -134,63 +197,60 @@ fn receive_image_from_buffer(mut world: DeferredWorld) {
     let config = world.resource::<CaptureConfig>().clone();
     let (width, height, texture_format) = (config.width, config.height, config.texture_format);
 
-    let mut guard = image_copier.queue.lock().unwrap();
-    let all = guard
-        .drain(..)
-        .fold(vec![], |mut all, (buffer, snapshots)| {
-            let (s, r) = futures::channel::oneshot::channel();
-            let buffer_slice = buffer.slice(..);
-            let buffer = buffer.clone();
-            buffer_slice.map_async(MapMode::Read, move |res| {
-                res.expect("Failed to map buffer");
-                let buffer_slice = buffer.slice(..);
-                let data = buffer_slice.get_mapped_range();
-                let dat = data.to_vec();
-                drop(data);
-                buffer.unmap();
-                s.send(dat).expect("Failed to send map update")
-            });
-            all.push((r, snapshots));
-            all
-        });
-    drop(guard);
+    let (buffer, snapshots) = {
+        let mut guard = image_copier.queue.lock().unwrap();
+        let Some(next) = guard.pop_front() else {
+            return;
+        };
+        next
+    };
 
-    // what fuck
-    for (r, snapshots) in all.into_iter() {
-        let snapshots: Vec<Box<dyn SnapshotAsync>> = snapshots
-            .into_iter()
-            .map(|v| v.captured(&mut world, &config))
-            .collect();
-        AsyncComputeTaskPool::get()
-            .spawn(async move {
-                let mut image_data = r.await.expect("Failed to receive the map_async message");
-                let image_data = {
-                    let row_bytes = width as usize * texture_format.pixel_size().unwrap();
+    let free_buffers = image_copier.free_buffers.clone();
+    let (s, r) = futures::channel::oneshot::channel();
+    let buffer_slice = buffer.slice(..);
+    let buffer_for_map = buffer.clone();
+    buffer_slice.map_async(MapMode::Read, move |res| {
+        res.expect("Failed to map buffer");
+        let buffer_slice = buffer_for_map.slice(..);
+        let data = buffer_slice.get_mapped_range();
+        let dat = data.to_vec();
+        drop(data);
+        buffer_for_map.unmap();
+        free_buffers.lock().unwrap().push(buffer_for_map);
+        s.send(dat).expect("Failed to send map update")
+    });
+
+    let snapshots: Vec<Box<dyn SnapshotAsync>> = snapshots
+        .into_iter()
+        .map(|v| v.captured(&mut world, &config))
+        .collect();
+
+    AsyncComputeTaskPool::get()
+        .spawn(async move {
+            let padded = r.await.expect("Failed to receive the map_async message");
+            let image_data = padded_rgba_to_rgb(&padded, width, height, texture_format)
+                .unwrap_or_else(|| {
+                    let pixel_size = texture_format
+                        .pixel_size()
+                        .expect("Unsupported capture texture format");
+                    let row_bytes = width as usize * pixel_size;
                     let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
-                    if row_bytes != aligned_row_bytes {
-                        image_data = image_data
-                            .chunks(aligned_row_bytes)
-                            .take(height as usize)
-                            .flat_map(|row| &row[..row_bytes.min(row.len())])
-                            .cloned()
-                            .collect();
-                    }
+                    let unpadded = unpad_rows(&padded, row_bytes, aligned_row_bytes, height);
                     let mut bevy_image = Image::new_target_texture(
                         width,
                         height,
                         texture_format,
                         Some(texture_format),
                     );
-                    bevy_image.data = Some(image_data);
+                    bevy_image.data = Some(unpadded);
                     bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
-                };
-                let image_data = image_data.as_slice();
-                for mut snapshot in snapshots {
-                    snapshot.captured(width, height, image_data);
-                }
-            })
-            .detach();
-    }
+                });
+            let image_data = image_data.as_slice();
+            for mut snapshot in snapshots {
+                snapshot.captured(width, height, image_data);
+            }
+        })
+        .detach();
 }
 
 pub struct CameraCapturePlugin {

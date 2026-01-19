@@ -7,10 +7,56 @@ use std::path::Path;
 #[derive(Resource, Deserialize, Reflect, Clone)]
 #[reflect(Resource)]
 pub struct SimulationConfig {
+    #[serde(default)]
+    pub window: WindowConfig,
+    #[serde(default)]
+    pub debug: DebugConfig,
+    #[serde(default)]
+    pub preview: PreviewConfig,
     pub physics: PhysicsConfig,
     pub vehicle: VehicleConfig,
     pub projectile: ProjectileConfig,
     pub camera: CameraConfig,
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+pub struct WindowConfig {
+    pub present_mode: String,
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        Self {
+            // Uncap rendering by default so off-screen capture (Talos/ROS2) can exceed 60Hz.
+            present_mode: "auto_no_vsync".to_string(),
+        }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+pub struct DebugConfig {
+    pub egui: bool,
+    pub inspector: bool,
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            egui: false,
+            inspector: false,
+        }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+pub struct PreviewConfig {
+    pub enabled: bool,
+}
+
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Deserialize, Reflect, Clone)]
@@ -83,6 +129,9 @@ impl Default for SimulationConfig {
         Self::load().unwrap_or_else(|e| {
             warn!("Failed to load config.toml: {}, using defaults", e);
             Self {
+                window: WindowConfig::default(),
+                debug: DebugConfig::default(),
+                preview: PreviewConfig::default(),
                 physics: PhysicsConfig { substep_count: 10 },
                 vehicle: VehicleConfig {
                     rotation_speed: 3.0,

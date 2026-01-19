@@ -44,95 +44,121 @@ use crate::ros2::plugin::ROS2Plugin;
 #[cfg(feature = "talos")]
 use talos::TalosPlugin;
 
+fn present_mode_from_config(value: &str) -> Option<PresentMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "auto_vsync" | "vsync" => Some(PresentMode::AutoVsync),
+        "auto_no_vsync" | "no_vsync" | "novsync" => Some(PresentMode::AutoNoVsync),
+        "fifo" => Some(PresentMode::Fifo),
+        "fifo_relaxed" | "fifo-relaxed" => Some(PresentMode::FifoRelaxed),
+        "mailbox" => Some(PresentMode::Mailbox),
+        "immediate" => Some(PresentMode::Immediate),
+        _ => None,
+    }
+}
+
 fn main() {
     let config = SimulationConfig::default();
+    let present_mode = present_mode_from_config(&config.window.present_mode).unwrap_or_else(|| {
+        warn!(
+            "Unknown window.present_mode {:?}, falling back to auto_no_vsync",
+            config.window.present_mode
+        );
+        PresentMode::AutoNoVsync
+    });
     let mut app = App::new();
     app.add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                present_mode: PresentMode::AutoVsync,
+                present_mode,
                 fit_canvas_to_parent: true,
                 ..default()
             }),
             ..default()
         }),
         PhysicsPlugins::default(),
-    ))
-    .add_plugins((EguiPlugin::default(), WorldInspectorPlugin::new()))
-    .add_plugins(RoboMasterPlugins)
-    .add_plugins((
-        FrameTimeDiagnosticsPlugin::default(),
-        LogDiagnosticsPlugin::default(),
-    ))
-    .add_plugins(DatasetPlugin)
-    .add_plugins(ConfigPlugin)
-    .init_resource::<CameraMode>()
-    .init_resource::<ProjectileStatistics>()
-    .register_type::<ProjectileStatistics>()
-    .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
-    .insert_resource(SubstepCount(config.physics.substep_count))
-    .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
-    .insert_resource(ProjectileCooldown(Timer::from_seconds(
-        config.projectile.cooldown,
-        TimerMode::Once,
-    )))
-    .add_systems(Startup, (setup, setup_projectile))
-    .add_observer(setup_ground)
-    .add_observer(setup_vehicle)
-    .add_observer(setup_collision)
-    .add_observer(on_hit)
-    .add_observer(on_activate)
-    .configure_sets(
-        Update,
-        (
-            GameplaySystems::Input,
-            GameplaySystems::GameLogic,
-            GameplaySystems::Camera,
-            GameplaySystems::Cleanup,
+    ));
+
+    if config.debug.egui {
+        app.add_plugins(EguiPlugin::default());
+        if config.debug.inspector {
+            app.add_plugins(WorldInspectorPlugin::new());
+        }
+    }
+
+    app.add_plugins(RoboMasterPlugins)
+        .add_plugins((
+            FrameTimeDiagnosticsPlugin::default(),
+            LogDiagnosticsPlugin::default(),
+        ))
+        .add_plugins(DatasetPlugin)
+        .add_plugins(ConfigPlugin)
+        .init_resource::<CameraMode>()
+        .init_resource::<ProjectileStatistics>()
+        .register_type::<ProjectileStatistics>()
+        .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
+        .insert_resource(SubstepCount(config.physics.substep_count))
+        .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
+        .insert_resource(ProjectileCooldown(Timer::from_seconds(
+            config.projectile.cooldown,
+            TimerMode::Once,
+        )))
+        .add_systems(Startup, (setup, setup_projectile))
+        .add_observer(setup_ground)
+        .add_observer(setup_vehicle)
+        .add_observer(setup_collision)
+        .add_observer(on_hit)
+        .add_observer(on_activate)
+        .configure_sets(
+            Update,
+            (
+                GameplaySystems::Input,
+                GameplaySystems::GameLogic,
+                GameplaySystems::Camera,
+                GameplaySystems::Cleanup,
+            )
+                .chain(),
         )
-            .chain(),
-    )
-    .add_systems(
-        Update,
-        (
-            // Input phase
+        .add_systems(
+            Update,
             (
-                auto_aim_switch,
-                following_controls,
-                switch_slapper_control,
-                vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
-                remote_vehicle_controls,
-                gimbal_controls,
-                remote_gimbal_controls,
-            )
-                .in_set(GameplaySystems::Input),
-            // GameLogic phase
-            (change_appearance, update_help_text).in_set(GameplaySystems::GameLogic),
-            // Camera phase
-            (
-                freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
-                systems::update_camera_follow
-                    .run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
-            )
-                .in_set(GameplaySystems::Camera)
-                .before(RenderSystems::Render),
-            // Cleanup phase
-            (
-                cleanup_projectiles,
-                screenshot_on_f2
-                    .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
-                screenshot_saving,
-            )
-                .in_set(GameplaySystems::Cleanup),
-        ),
-    )
-    .add_systems(
-        PostUpdate,
-        projectile_launch
-            .after(TransformSystems::Propagate)
-            .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
-    )
-    .add_systems(FixedUpdate, projectile_aerodynamics);
+                // Input phase
+                (
+                    auto_aim_switch,
+                    following_controls,
+                    switch_slapper_control,
+                    vehicle_controls.run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
+                    remote_vehicle_controls,
+                    gimbal_controls,
+                    remote_gimbal_controls,
+                )
+                    .in_set(GameplaySystems::Input),
+                // GameLogic phase
+                (change_appearance, update_help_text).in_set(GameplaySystems::GameLogic),
+                // Camera phase
+                (
+                    freecam_controls.run_if(|mode: Res<CameraMode>| mode.0 == FollowingType::Free),
+                    systems::update_camera_follow
+                        .run_if(|mode: Res<CameraMode>| mode.0 != FollowingType::Free),
+                )
+                    .in_set(GameplaySystems::Camera)
+                    .before(RenderSystems::Render),
+                // Cleanup phase
+                (
+                    cleanup_projectiles,
+                    screenshot_on_f2
+                        .run_if(|input: Res<ButtonInput<KeyCode>>| input.just_pressed(KeyCode::F2)),
+                    screenshot_saving,
+                )
+                    .in_set(GameplaySystems::Cleanup),
+            ),
+        )
+        .add_systems(
+            PostUpdate,
+            projectile_launch
+                .after(TransformSystems::Propagate)
+                .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
+        )
+        .add_systems(FixedUpdate, projectile_aerodynamics);
 
     #[cfg(feature = "ros2")]
     {
