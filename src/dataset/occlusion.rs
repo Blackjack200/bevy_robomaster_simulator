@@ -99,18 +99,19 @@ impl<'w, 's> Occlusion<'w, 's> {
                 };
                 println!("{:?}!={:?}", ancestor.0, *side);
                 if ancestor.0 != *side {
-                    println!(
+                    /*println!(
                         "{:?}@{:?} is occluded by light_strip: {:?}, hit_dist: {}, total_dist: {}",
                         self.names.get(armor_entity),
                         side,
                         self.names.get(e),
                         hit.distance,
                         total_dist
-                    );
+                    );*/
                     //untolerated
                     return OcclusionType::Untolerated;
                 }
             }
+            /*
             println!(
                 "{:?}@{:?} is occluded by body: {:?}, hit_dist: {}, total_dist: {}",
                 self.names.get(armor_entity),
@@ -119,17 +120,19 @@ impl<'w, 's> Occlusion<'w, 's> {
                 hit.distance,
                 total_dist
             );
+            */
 
             let is_occluded = hit.distance < total_dist - f32::EPSILON;
 
             if is_occluded {
+                /*
                 println!(
                     "{:?} is occluded by: {:?}, hit_dist: {}, total_dist: {}",
                     self.names.get(armor_entity),
                     self.names.get(e),
                     hit.distance,
                     total_dist
-                );
+                );*/
                 return OcclusionType::Tolerated;
             }
         }

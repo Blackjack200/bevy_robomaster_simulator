@@ -16,8 +16,12 @@ pub enum ArmorOcclusionSystems {
     Propagate,
 }
 
+/// Shared data resource for armor entries - can be used by both manual and auto capture
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct ArmorData(pub Mutex<Vec<ArmorEntry>>);
+
 #[derive(Resource, Deref, DerefMut)]
-struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
+pub struct DatasetHandle(pub Arc<Mutex<DatasetWriter>>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct Cooldown(Mutex<Timer>);
@@ -87,7 +91,7 @@ pub fn world_to_screen(
 
 type CornerTuple = (Vec3, (u32, u32));
 
-fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
+pub(crate) fn sort_screen_points(points: [CornerTuple; 4]) -> [CornerTuple; 4] {
     let points_with_vec: Vec<(CornerTuple, Vec2)> = points
         .iter()
         .map(|&v| (v, Vec2::new(v.1.0 as f32, v.1.1 as f32)))
@@ -119,14 +123,13 @@ type ArmorScreenData = (ArmorType, ArmorLabel, ArmorColor, [(u32, u32); 4]);
 #[derive(Default)]
 pub struct DatasetSnapshotCreator {}
 #[derive(Default, Resource, Deref, DerefMut)]
-struct Data(Mutex<Vec<ArmorEntry>>);
+pub(crate) struct Data(Mutex<Vec<ArmorEntry>>);
 
 impl GpuCaptureHandler for DatasetSnapshotCreator {
     fn captured(&self, world: &World) -> Option<Box<dyn SnapshotSync>> {
         let mut guard = world.resource::<Data>().lock().unwrap();
         let data = guard.drain(..).collect::<Vec<_>>();
         if !data.is_empty() {
-            println!("annie are you ok?");
             Some(Box::new(DatasetSnapshotSync { data }))
         } else {
             None
@@ -166,7 +169,7 @@ impl SnapshotAsync for DatasetSnapshot {
     }
 }
 
-fn capture(
+pub(crate) fn capture(
     root_data: Extract<Query<(Entity, &Armor, &ArmorRoot)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
@@ -210,19 +213,6 @@ fn capture(
         }
         let (tf, MarkerData(markers)) = marker_data.get(marker).unwrap();
 
-        // DEBUG: 打印 marker 坐标诊断信息
-        println!("=== MARKER DEBUG for {} ===", armor.name);
-        println!(
-            "MARKER GlobalTransform: translation={:?}, rotation={:?}",
-            tf.translation(),
-            tf.to_scale_rotation_translation().1
-        );
-        println!("MarkerData local vertices: {:?}", markers);
-        for (i, &local) in markers.iter().enumerate() {
-            let world = tf.transform_point(local);
-            println!("  vertex[{}]: local={:?} -> world={:?}", i, local, world);
-        }
-
         let Some(markers) = all_in_frustum(tf, markers) else {
             continue;
         };
@@ -246,13 +236,6 @@ fn capture(
             },
             marker_ordered.map(|v| v.1),
         ));
-    }
-    for (team, armor_screen) in armor_screen.iter() {
-        println!(
-            "Infantry from team {:?} armor count: {}",
-            team,
-            armor_screen.len()
-        );
     }
     let mut rr = armor_r.lock().unwrap();
     armor_screen.drain().for_each(|(_, n)| {

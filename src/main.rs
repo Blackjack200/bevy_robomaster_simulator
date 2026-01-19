@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+mod auto_gen;
 mod capture;
 mod components;
 mod config;
@@ -23,11 +24,22 @@ use bevy::render::RenderSystems;
 use bevy::window::PresentMode;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use clap::Parser;
 use std::sync::atomic::AtomicBool;
 
+use crate::auto_gen::AutoGenPlugin;
 use crate::components::{CameraMode, FollowingType, ProjectileCooldown, SubscribeAutoAim};
 use crate::config::{ConfigPlugin, SimulationConfig};
 use crate::dataset::prelude::DatasetPlugin;
+
+/// Command-line arguments for the application
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Enable auto dataset generation mode
+    #[arg(long)]
+    auto_gen: bool,
+}
 use crate::handler::{on_activate, on_hit};
 use crate::robomaster::prelude::RoboMasterPlugins;
 use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
@@ -57,6 +69,43 @@ fn present_mode_from_config(value: &str) -> Option<PresentMode> {
 }
 
 fn main() {
+    let args = Args::parse();
+
+    // Auto-gen mode: minimal setup
+    if args.auto_gen {
+        let config = SimulationConfig::default();
+        let present_mode =
+            present_mode_from_config(&config.window.present_mode).unwrap_or_else(|| {
+                warn!(
+                    "Unknown window.present_mode {:?}, falling back to auto_no_vsync",
+                    config.window.present_mode
+                );
+                PresentMode::AutoNoVsync
+            });
+
+        App::new()
+            .add_plugins((
+                DefaultPlugins.set(WindowPlugin {
+                    primary_window: Some(Window {
+                        present_mode,
+                        fit_canvas_to_parent: true,
+                        ..default()
+                    }),
+                    ..default()
+                }),
+                PhysicsPlugins::default(),
+            ))
+            .add_plugins(RoboMasterPlugins)
+            .add_plugins(ConfigPlugin)
+            .add_observer(setup_vehicle)
+            .insert_resource(Gravity(Vec3::ZERO))
+            .insert_resource(SubstepCount(config.physics.substep_count))
+            .add_plugins(AutoGenPlugin)
+            .run();
+        return;
+    }
+
+    // Full simulation mode: existing functionality
     let config = SimulationConfig::default();
     let present_mode = present_mode_from_config(&config.window.present_mode).unwrap_or_else(|| {
         warn!(
