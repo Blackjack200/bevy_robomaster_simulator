@@ -53,20 +53,25 @@ impl ActivatingState {
             .collect()
     }
 
-    pub fn on_hit(&mut self, target_index: usize) -> Option<RuneAction> {
+    pub fn on_hit(&mut self, target_index: usize) -> Option<Vec<RuneAction>> {
         let action = self.try_activate(target_index)?;
-        if self.mode != RuneMode::Large {
-            return Some(action);
+
+        if self.mode == RuneMode::Large && matches!(action, RuneAction::PartialActivate(_)) {
+            // 大机关：击中第一个靶后，给1秒的二次打击窗口，不立即亮靶
+            self.timeout.reset();
+            self.next_round = Timer::from_seconds(LARGE_SECONDARY_TIMEOUT, TimerMode::Once);
+            return Some(vec![action]);
         }
-        if !matches!(action, RuneAction::PartialActivate(_)) {
-            return Some(action);
+
+        // 如果是完全激活（全部靶已激活），不调用new_round()
+        if matches!(action, RuneAction::FullActivate(_)) {
+            return Some(vec![action]);
         }
-        // 重设20秒超时
-        self.timeout.reset();
-        // 大机关逻辑：规则要求命中任意一个靶后启动1秒二次窗口
-        // 命中第一个靶后启动1秒二次命中窗口
-        self.next_round = Timer::from_seconds(LARGE_SECONDARY_TIMEOUT, TimerMode::Once);
-        Some(action)
+
+        // 小机关或大机关的部分激活：立即点亮下一轮
+        let mut actions = vec![action];
+        actions.extend(self.new_round());
+        Some(actions)
     }
 
     pub fn tick(&mut self, delta: Duration) -> Option<Vec<RuneAction>> {

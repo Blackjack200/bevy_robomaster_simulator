@@ -108,18 +108,22 @@ impl PowerRune {
     ) -> HitResult {
         match &mut self.state {
             MechanismState::Activating(state) => {
-                let action = state.on_hit(target_index);
-                let Some(action) = action else {
+                let actions = state.on_hit(target_index);
+                let Some(actions) = actions else {
                     return HitResult {
                         accurate: false,
                         change_state: false,
                     };
                 };
-                let change_state = matches!(
-                    action,
-                    RuneAction::PartialActivate(_) | RuneAction::FullActivate(_)
-                );
-                self.handle_action(rng, action, appearance);
+                let change_state = actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        RuneAction::PartialActivate(_) | RuneAction::FullActivate(_)
+                    )
+                });
+                for action in actions {
+                    self.handle_action(rng, action, appearance);
+                }
                 HitResult {
                     accurate: true,
                     change_state,

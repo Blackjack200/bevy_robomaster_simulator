@@ -154,6 +154,6 @@ topic!(
         "/camera_pose" as PoseStamped as CameraPoseTopic;
     }
     sub {
-        "/armor_solver/cmd_gimbal" as GimbalCmd as GimbalCmdTopic with QosProfile::sensor_data();
+        "/rm_gimbal/cmd" as GimbalCmd as GimbalCmdTopic with QosProfile::sensor_data();
     }
 );
