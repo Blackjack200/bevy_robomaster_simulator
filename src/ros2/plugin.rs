@@ -366,6 +366,21 @@ impl Plugin for ROS2Plugin {
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
+            .add_plugins(RosCapturePlugin {
+                config: CaptureConfig {
+                    width: 1440,
+                    height: 1080,
+                    texture_format: TextureFormat::bevy_default(),
+                },
+                context: RosCaptureContext {
+                    clock,
+                    fov_y: 45.0,
+                    publish_compressed: false,
+                    camera_info,
+                    image_raw,
+                    image_compressed,
+                },
+            })
             .add_systems(Last, cleanup_ros2_system)
             .add_systems(
                 Update,
