@@ -13,6 +13,8 @@ pub struct SimulationConfig {
     pub debug: DebugConfig,
     #[serde(default)]
     pub preview: PreviewConfig,
+    #[serde(default)]
+    pub render: RenderConfig,
     pub physics: PhysicsConfig,
     pub vehicle: VehicleConfig,
     pub projectile: ProjectileConfig,
@@ -34,9 +36,11 @@ impl Default for WindowConfig {
 }
 
 #[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
 pub struct DebugConfig {
     pub egui: bool,
     pub inspector: bool,
+    pub diagnostics: bool,
 }
 
 impl Default for DebugConfig {
@@ -44,6 +48,7 @@ impl Default for DebugConfig {
         Self {
             egui: false,
             inspector: false,
+            diagnostics: false,
         }
     }
 }
@@ -56,6 +61,22 @@ pub struct PreviewConfig {
 impl Default for PreviewConfig {
     fn default() -> Self {
         Self { enabled: true }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct RenderConfig {
+    pub shadows: bool,
+    pub main_camera_fxaa: bool,
+}
+
+impl Default for RenderConfig {
+    fn default() -> Self {
+        Self {
+            shadows: false,
+            main_camera_fxaa: false,
+        }
     }
 }
 
@@ -132,6 +153,7 @@ impl Default for SimulationConfig {
                 window: WindowConfig::default(),
                 debug: DebugConfig::default(),
                 preview: PreviewConfig::default(),
+                render: RenderConfig::default(),
                 physics: PhysicsConfig { substep_count: 10 },
                 vehicle: VehicleConfig {
                     rotation_speed: 3.0,

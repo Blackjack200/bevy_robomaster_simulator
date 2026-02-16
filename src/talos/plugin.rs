@@ -1,5 +1,5 @@
 use crate::capture::driver::CaptureConfig;
-use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
+use crate::capture::{IMAGE_HEIGHT, IMAGE_WIDTH};
 use crate::components::{
     Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim,
 };
@@ -12,37 +12,14 @@ use crate::talos::subscriber::ShmSubscriber;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
-use std::f32::consts::PI;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Resource)]
 pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct TalosEnabled(pub AtomicBool);
-
-#[derive(Resource, Clone, Default)]
-struct CachedPoseData {
-    odom_translation: [f32; 3],
-    odom_quaternion: [f32; 4],
-    gimbal_quaternion: [f32; 4],
-    muzzle_translation: [f32; 3],
-    camera_translation: [f32; 3],
-    valid: bool,
-}
-
-#[derive(Resource)]
-struct HighFrequencyTimer {
-    accumulator: f32,
-}
-
-impl Default for HighFrequencyTimer {
-    fn default() -> Self {
-        Self { accumulator: 0.0 }
-    }
-}
 
 pub struct TalosPluginConfig {
     pub width: u32,
@@ -110,18 +87,12 @@ impl Plugin for TalosPlugin {
         }
 
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
-        app.insert_resource(CachedPoseData::default());
-        app.insert_resource(HighFrequencyTimer::default());
         app.add_systems(Last, heartbeat_system);
         app.add_systems(
             Last,
-            (
-                process_subscription
-                    .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
-                publish_gimbal_pose_system,
-            ),
+            process_subscription
+                .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
         );
-        app.add_systems(Update, high_frequency_publish_system);
     }
 }
 
@@ -181,10 +152,11 @@ pub fn publish_pose(
     index: PoseIndex,
     position: [f32; 3],
     quaternion: [f32; 4],
+    frame_seq: u64,
     timestamp_ns: u64,
 ) {
     if let Ok(mut publisher) = context.publisher.lock() {
-        publisher.publish_pose(index, position, quaternion, timestamp_ns);
+        publisher.publish_pose(index, position, quaternion, frame_seq, timestamp_ns);
     }
 }
 
@@ -216,97 +188,4 @@ pub fn to_ros_quat(quat: Quat) -> Quat {
     let align_quat = Quat::from_mat3(&align_rot_mat);
     let new_rotation = align_quat * quat * align_quat.inverse();
     new_rotation
-}
-
-fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
-fn publish_gimbal_pose_system(
-    mut cached_pose: ResMut<CachedPoseData>,
-    camera: Single<&GlobalTransform, With<CaptureSource>>,
-    gimbal: Single<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
-    muzzle_offset: Single<
-        (&GlobalTransform, &Transform),
-        (With<InfantryLaunchOffset>, With<Controlled>),
-    >,
-) {
-    let cam_transform = camera.into_inner();
-    let gimbal = gimbal.into_inner();
-    let cam_rel = cam_transform.reparented_to(gimbal);
-    let muzzle_rel = muzzle_offset.0.reparented_to(gimbal);
-
-    let gimbal_ros = to_ros_translation(gimbal.translation());
-    cached_pose.odom_translation = [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z];
-    cached_pose.odom_quaternion = [1.0, 0.0, 0.0, 0.0];
-
-    let gimbal_rot = gimbal.rotation()
-        * muzzle_offset.1.rotation
-        * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0);
-    let gimbal_rot = to_ros_quat(gimbal_rot);
-    cached_pose.gimbal_quaternion = [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z];
-
-    let muzzle = to_ros_translation(muzzle_rel.translation);
-    cached_pose.muzzle_translation = [muzzle.x, muzzle.y, muzzle.z];
-
-    let camera = to_ros_translation(cam_rel.translation);
-    cached_pose.camera_translation = [camera.x, camera.y, camera.z];
-
-    cached_pose.valid = true;
-}
-
-fn high_frequency_publish_system(
-    mut timer: ResMut<HighFrequencyTimer>,
-    time: Res<Time<Real>>,
-    cached_pose: Res<CachedPoseData>,
-    context: Option<Res<TalosCaptureContext>>,
-) {
-    if !cached_pose.valid {
-        return;
-    }
-
-    let Some(ctx) = context else { return };
-
-    timer.accumulator += time.delta().as_secs_f32();
-    const INTERVAL_SECS: f32 = 1.0 / 1000.0;
-
-    while timer.accumulator >= INTERVAL_SECS {
-        timer.accumulator -= INTERVAL_SECS;
-        let timestamp_ns = now_ns();
-
-        publish_pose(
-            &ctx,
-            PoseIndex::Odom,
-            cached_pose.odom_translation,
-            cached_pose.odom_quaternion,
-            timestamp_ns,
-        );
-
-        publish_pose(
-            &ctx,
-            PoseIndex::Gimbal,
-            [0.0, 0.0, 0.0],
-            cached_pose.gimbal_quaternion,
-            timestamp_ns,
-        );
-
-        publish_pose(
-            &ctx,
-            PoseIndex::Muzzle,
-            cached_pose.muzzle_translation,
-            [1.0, 0.0, 0.0, 0.0],
-            timestamp_ns,
-        );
-
-        publish_pose(
-            &ctx,
-            PoseIndex::Camera,
-            cached_pose.camera_translation,
-            [1.0, 0.0, 0.0, 0.0],
-            timestamp_ns,
-        );
-    }
 }

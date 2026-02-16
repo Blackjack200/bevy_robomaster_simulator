@@ -29,15 +29,27 @@ pub struct ImageMeta {
 const _: () = assert!(size_of::<ImageMeta>() == 32);
 
 #[repr(C, align(64))]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct PoseMeta {
-    pub timestamp_ns: u64,
+    pub frame_seq: u64,
     pub position: [f32; 3],
     pub quaternion: [f32; 4],
-    pub frame_id: u8,
-    pub _pad: [u8; 27],
+    pub timestamp_ns: u64,
+    pub _pad: [u8; 16],
 }
 const _: () = assert!(size_of::<PoseMeta>() == 64);
+
+impl Default for PoseMeta {
+    fn default() -> Self {
+        Self {
+            frame_seq: 0,
+            position: [0.0; 3],
+            quaternion: [0.0; 4],
+            timestamp_ns: 0,
+            _pad: [0; 16],
+        }
+    }
+}
 
 #[repr(C, align(32))]
 #[derive(Debug, Clone, Copy, Default)]

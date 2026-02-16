@@ -34,7 +34,7 @@ pub fn setup(
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(0.9, 0.95, 1.0),
-            shadows_enabled: true,
+            shadows_enabled: config.render.shadows,
             ..default()
         },
         Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)),
@@ -165,12 +165,14 @@ pub fn setup(
         }),
         Msaa::Off,
         Tonemapping::None,
-        Fxaa::default(),
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
             follow_offset: Vec3::from_array(config.camera.follow_offset),
         },
     ));
+    if config.render.main_camera_fxaa {
+        main_camera.insert(Fxaa::default());
+    }
     if config.debug.egui {
         main_camera.insert(PrimaryEguiContext);
     }

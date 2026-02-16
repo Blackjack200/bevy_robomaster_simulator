@@ -135,10 +135,6 @@ fn main() {
     }
 
     app.add_plugins(RoboMasterPlugins)
-        .add_plugins((
-            FrameTimeDiagnosticsPlugin::default(),
-            LogDiagnosticsPlugin::default(),
-        ))
         .add_plugins(DatasetPlugin)
         .add_plugins(ConfigPlugin)
         .init_resource::<CameraMode>()
@@ -208,6 +204,13 @@ fn main() {
                 .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
         )
         .add_systems(FixedUpdate, projectile_aerodynamics);
+
+    if config.debug.diagnostics {
+        app.add_plugins((
+            FrameTimeDiagnosticsPlugin::default(),
+            LogDiagnosticsPlugin::default(),
+        ));
+    }
 
     #[cfg(feature = "ros2")]
     {

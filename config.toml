@@ -9,16 +9,24 @@ present_mode = "auto_no_vsync"
 # Turn these on only when needed; they noticeably reduce FPS.
 egui = false
 inspector = false
+# Prints FPS/frametime diagnostics to console.
+diagnostics = false
 
 [preview]
 # On-screen preview camera. Disable to avoid rendering the scene twice (preview + capture).
 enabled = true
 
+[render]
+# Expensive on large scenes; disable for higher FPS.
+shadows = false
+# Main on-screen camera anti-aliasing.
+main_camera_fxaa = false
+
 [physics]
 substep_count = 5              # physics substeps per frame
 
 [vehicle]
-rotation_speed = 4.0            # rad/s - chassis rotation speed
+rotation_speed = 6.14            # rad/s - chassis rotation speed
 gimbal_rotation_speed = 3.0     # rad/s - gimbal rotation speed
 gimbal_pitch_limit = 0.785      # rad - gimbal pitch limit (~45 degrees)
 max_speed = 4.0                 # m/s - maximum vehicle speed

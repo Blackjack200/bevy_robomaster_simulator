@@ -81,6 +81,7 @@ impl ShmPublisher {
         index: PoseIndex,
         position: [f32; 3],
         quaternion: [f32; 4],
+        frame_seq: u64,
         timestamp_ns: u64,
     ) {
         unsafe {
@@ -93,10 +94,10 @@ impl ShmPublisher {
             );
 
             let slot = producer.borrow_mut();
-            slot.timestamp_ns = timestamp_ns;
+            slot.frame_seq = frame_seq;
             slot.position = position;
             slot.quaternion = quaternion;
-            slot.frame_id = index as u8;
+            slot.timestamp_ns = timestamp_ns;
 
             producer.publish();
         }

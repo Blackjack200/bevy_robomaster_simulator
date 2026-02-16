@@ -18,18 +18,25 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// Shared timestamp for synchronizing pose and image publication.
-/// Updated by TalosSnapshotCreator, read by publish_gimbal_pose_system.
-pub static SHARED_TIMESTAMP_NS: AtomicU64 = AtomicU64::new(0);
-
 /// Extracted pose data from MainApp to RenderApp for synchronized publishing
 #[derive(Resource, Clone, Default)]
 pub struct ExtractedPoseData {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
     pub gimbal_translation: Vec3,
     pub gimbal_rotation: Quat,
     pub muzzle_rel_translation: Vec3,
     pub camera_rel_translation: Vec3,
     pub valid: bool,
+}
+
+/// Pose data captured at frame snapshot time
+#[derive(Clone)]
+struct CapturedPoseData {
+    gimbal_ros: [f32; 3],
+    gimbal_quat: [f32; 4],
+    muzzle_rel: [f32; 3],
+    camera_rel: [f32; 3],
 }
 
 fn now_ns() -> u64 {
@@ -40,7 +47,9 @@ fn now_ns() -> u64 {
 }
 
 struct TalosSnapshotSync {
+    frame_seq: u64,
     timestamp_ns: u64,
+    pose_data: Option<CapturedPoseData>,
 }
 
 impl SnapshotSync for TalosSnapshotSync {
@@ -49,63 +58,22 @@ impl SnapshotSync for TalosSnapshotSync {
         world: &mut DeferredWorld,
         _config: &CaptureConfig,
     ) -> Box<dyn SnapshotAsync> {
-        // Store timestamp for backward compatibility
-        SHARED_TIMESTAMP_NS.store(self.timestamp_ns, Ordering::Release);
-
         let ctx = world.resource::<TalosCaptureContextShared>().0.clone();
-        let pose_data = world.resource::<ExtractedPoseData>().clone();
-
-        // Publish pose data with the same timestamp as the image
-        if pose_data.valid {
-            if let Ok(mut publisher) = ctx.lock() {
-                // Odom
-                let gimbal_ros = to_ros_translation(pose_data.gimbal_translation);
-                publisher.publish_pose(
-                    PoseIndex::Odom,
-                    [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.timestamp_ns,
-                );
-
-                // Gimbal rotation
-                let gimbal_rot = to_ros_quat(pose_data.gimbal_rotation);
-                publisher.publish_pose(
-                    PoseIndex::Gimbal,
-                    [0.0, 0.0, 0.0],
-                    [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
-                    self.timestamp_ns,
-                );
-
-                // Muzzle
-                let muzzle = to_ros_translation(pose_data.muzzle_rel_translation);
-                publisher.publish_pose(
-                    PoseIndex::Muzzle,
-                    [muzzle.x, muzzle.y, muzzle.z],
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.timestamp_ns,
-                );
-
-                // Camera
-                let camera = to_ros_translation(pose_data.camera_rel_translation);
-                publisher.publish_pose(
-                    PoseIndex::Camera,
-                    [camera.x, camera.y, camera.z],
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.timestamp_ns,
-                );
-            }
-        }
 
         Box::new(TalosSnapshot {
             ctx,
+            frame_seq: self.frame_seq,
             timestamp_ns: self.timestamp_ns,
+            pose_data: self.pose_data,
         })
     }
 }
 
 struct TalosSnapshot {
     ctx: Arc<Mutex<ShmPublisher>>,
+    frame_seq: u64,
     timestamp_ns: u64,
+    pose_data: Option<CapturedPoseData>,
 }
 
 impl SnapshotAsync for TalosSnapshot {
@@ -128,9 +96,44 @@ impl SnapshotAsync for TalosSnapshot {
             return;
         }
 
-        let seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut publisher) = self.ctx.lock() {
-            publisher.publish_image(image, seq, self.timestamp_ns);
+            // Publish poses first (with the same frame_seq)
+            if let Some(ref pose) = self.pose_data {
+                publisher.publish_pose(
+                    PoseIndex::Odom,
+                    pose.gimbal_ros,
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.frame_seq,
+                    self.timestamp_ns,
+                );
+
+                publisher.publish_pose(
+                    PoseIndex::Gimbal,
+                    [0.0, 0.0, 0.0],
+                    pose.gimbal_quat,
+                    self.frame_seq,
+                    self.timestamp_ns,
+                );
+
+                publisher.publish_pose(
+                    PoseIndex::Muzzle,
+                    pose.muzzle_rel,
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.frame_seq,
+                    self.timestamp_ns,
+                );
+
+                publisher.publish_pose(
+                    PoseIndex::Camera,
+                    pose.camera_rel,
+                    [1.0, 0.0, 0.0, 0.0],
+                    self.frame_seq,
+                    self.timestamp_ns,
+                );
+            }
+
+            // Then publish image (with the same frame_seq)
+            publisher.publish_image(image, self.frame_seq, self.timestamp_ns);
         }
     }
 }
@@ -139,9 +142,28 @@ impl SnapshotAsync for TalosSnapshot {
 struct TalosSnapshotCreator {}
 
 impl GpuCaptureHandler for TalosSnapshotCreator {
-    fn captured(&self, _world: &World) -> Option<Box<dyn SnapshotSync>> {
+    fn captured(&self, world: &World) -> Option<Box<dyn SnapshotSync>> {
+        // Timestamp, frame sequence and pose must come from the same ExtractSchedule snapshot.
+        let extracted = world.get_resource::<ExtractedPoseData>()?;
+        if !extracted.valid {
+            return None;
+        }
+
+        let gimbal_ros = to_ros_translation(extracted.gimbal_translation);
+        let gimbal_rot = to_ros_quat(extracted.gimbal_rotation);
+        let muzzle = to_ros_translation(extracted.muzzle_rel_translation);
+        let camera = to_ros_translation(extracted.camera_rel_translation);
+        let pose_data = CapturedPoseData {
+            gimbal_ros: [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
+            gimbal_quat: [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
+            muzzle_rel: [muzzle.x, muzzle.y, muzzle.z],
+            camera_rel: [camera.x, camera.y, camera.z],
+        };
+
         Some(Box::new(TalosSnapshotSync {
-            timestamp_ns: now_ns(),
+            frame_seq: extracted.frame_seq,
+            timestamp_ns: extracted.timestamp_ns,
+            pose_data: Some(pose_data),
         }))
     }
 }
@@ -217,6 +239,9 @@ fn extract_pose_data(
         Query<(&GlobalTransform, &Transform), (With<InfantryLaunchOffset>, With<Controlled>)>,
     >,
 ) {
+    pose_data.frame_seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
+    pose_data.timestamp_ns = now_ns();
+
     let Ok(cam_transform) = camera.single() else {
         pose_data.valid = false;
         return;
