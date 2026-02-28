@@ -1,6 +1,6 @@
-use crate::talos::layout::*;
-use crate::talos::shm::{ShmError, ShmRegion};
-use crate::talos::triple_buffer::TripleBufferConsumer;
+use crate::layout::*;
+use crate::shm::{ShmError, ShmRegion};
+use crate::triple_buffer::TripleBufferConsumer;
 
 pub struct ShmSubscriber {
     meta_region: ShmRegion,

@@ -1,4 +1,4 @@
-use crate::talos::layout::{FLAG_NEW, INDEX_MASK};
+use crate::layout::{FLAG_NEW, INDEX_MASK};
 use std::sync::atomic::Ordering;
 
 pub struct TripleBufferProducer<'a, S> {

@@ -5,9 +5,7 @@ use crate::capture::{
 };
 use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
 use crate::dataset::prelude::DatasetSnapshotCreator;
-use crate::talos::layout::*;
 use crate::talos::plugin::{to_ros_quat, to_ros_translation};
-use crate::talos::publisher::ShmPublisher;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use bevy::render::{Extract, ExtractSchedule, RenderApp};
@@ -15,6 +13,7 @@ use std::f32::consts::PI;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use talos_ipc::*;
 
 static FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
 

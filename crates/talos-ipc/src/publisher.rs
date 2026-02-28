@@ -1,6 +1,6 @@
-use crate::talos::layout::*;
-use crate::talos::shm::{ShmError, ShmRegion};
-use crate::talos::triple_buffer::TripleBufferProducer;
+use crate::layout::*;
+use crate::shm::{ShmError, ShmRegion};
+use crate::triple_buffer::TripleBufferProducer;
 use std::sync::atomic::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -6,14 +6,12 @@ use crate::components::{
 use crate::config::SimulationConfig;
 use crate::systems::projectile_launch;
 use crate::talos::capture::{TalosCaptureContext, TalosCapturePlugin};
-use crate::talos::layout::*;
-use crate::talos::publisher::ShmPublisher;
-use crate::talos::subscriber::ShmSubscriber;
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use talos_ipc::*;
 
 #[derive(Resource)]
 pub struct ShmSubscriberRes(pub Arc<Mutex<ShmSubscriber>>);

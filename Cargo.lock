@@ -2583,11 +2583,11 @@ dependencies = [
  "ffmpeg-next",
  "futures",
  "image",
- "memmap2",
  "notify",
  "r2r",
  "rand 0.9.2",
  "serde",
+ "talos-ipc",
  "toml",
 ]
 
@@ -6045,6 +6045,13 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "talos-ipc"
+version = "0.1.0"
+dependencies = [
+ "memmap2",
 ]
 
 [[package]]

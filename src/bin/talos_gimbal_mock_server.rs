@@ -5,33 +5,10 @@ use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-mod capture {
-    pub const IMAGE_WIDTH: u32 = 1440;
-    pub const IMAGE_HEIGHT: u32 = 1080;
-}
-
-#[path = "../talos/layout.rs"]
-mod talos_layout;
-#[path = "../talos/publisher.rs"]
-mod talos_publisher;
-#[path = "../talos/shm.rs"]
-mod talos_shm;
-#[path = "../talos/subscriber.rs"]
-mod talos_subscriber;
-#[path = "../talos/triple_buffer.rs"]
-mod talos_triple_buffer;
-
-mod talos {
-    pub(crate) use crate::talos_layout as layout;
-    pub(crate) use crate::talos_publisher as publisher;
-    pub(crate) use crate::talos_shm as shm;
-    pub(crate) use crate::talos_subscriber as subscriber;
-    pub(crate) use crate::talos_triple_buffer as triple_buffer;
-}
-
-use talos::layout::{CameraInfo, IMAGE_HEIGHT, IMAGE_SIZE, IMAGE_WIDTH, PoseIndex};
-use talos::publisher::ShmPublisher;
-use talos::subscriber::ShmSubscriber;
+// Use the talos-ipc crate instead of local modules
+use talos_ipc::{
+    CameraInfo, IMAGE_HEIGHT, IMAGE_SIZE, IMAGE_WIDTH, PoseIndex, ShmPublisher, ShmSubscriber,
+};
 
 type DynError = Box<dyn Error + Send + Sync + 'static>;
 
