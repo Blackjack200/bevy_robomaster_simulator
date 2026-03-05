@@ -107,6 +107,12 @@ impl<'a, S> TripleBufferConsumer<'a, S> {
         }
     }
 
+    /// Check if new data is available without consuming it
+    ///
+    /// This is useful for non-blocking polling of data availability.
+    /// Returns `true` if a call to `borrow()` would return `Some(_)`.
+    #[must_use]
+    #[allow(dead_code)]
     pub fn has_new_data(&self) -> bool {
         (self.state.load(Ordering::Acquire) & FLAG_NEW) != 0
     }

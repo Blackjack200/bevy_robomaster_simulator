@@ -18,9 +18,9 @@ enabled = true
 
 [render]
 # Expensive on large scenes; disable for higher FPS.
-shadows = false
+shadows = true
 # Main on-screen camera anti-aliasing.
-main_camera_fxaa = false
+main_camera_fxaa = true
 
 [physics]
 substep_count = 5              # physics substeps per frame
