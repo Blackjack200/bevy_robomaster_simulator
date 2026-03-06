@@ -1,7 +1,9 @@
+pub mod depth;
 pub mod driver;
 
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::RenderTarget;
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
@@ -19,22 +21,32 @@ pub struct ImageHandle(pub Handle<Image>);
 #[derive(Resource, Clone, Copy)]
 pub struct CameraFov(pub f32);
 
-pub fn setup_capture_camera(
-    mut commands: Commands,
-    render_target_handle: Res<ImageHandle>,
-    fov: Res<CameraFov>,
-) {
-    commands.spawn((
+pub const CAPTURE_CAMERA_ORDER: isize = -100;
+
+pub fn setup_capture_camera(world: &mut World) {
+    let capture_camera_exists = {
+        let mut query = world.query_filtered::<Entity, With<CaptureCamera>>();
+        query.iter(world).next().is_some()
+    };
+    if capture_camera_exists {
+        return;
+    }
+
+    let render_target_handle = world.resource::<ImageHandle>().0.clone();
+    let fov = world.resource::<CameraFov>().0;
+
+    world.spawn((
         Camera3d::default(),
         Bloom::NATURAL,
         Tonemapping::None,
-        RenderTarget::Image(render_target_handle.0.clone().into()),
+        RenderTarget::Image(render_target_handle.into()),
         Camera {
+            order: CAPTURE_CAMERA_ORDER,
             clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
-            fov: fov.0,
+            fov,
             near: 0.1,
             far: 500000000.0,
             ..default()
@@ -42,6 +54,7 @@ pub fn setup_capture_camera(
         Msaa::Off,
         Fxaa::default(),
         Hdr,
+        DepthPrepass,
         CaptureCamera,
     ));
 }
@@ -52,44 +65,62 @@ pub struct PreviewCamera;
 #[derive(Component)]
 pub struct PreviewImageNode;
 
-pub fn setup_preview_window(
-    mut commands: Commands,
-    render_target_handle: Res<ImageHandle>,
-    config: Res<crate::config::SimulationConfig>,
-) {
-    if !config.preview.enabled {
+pub fn setup_preview_window(world: &mut World) {
+    let preview_enabled = world
+        .resource::<crate::config::SimulationConfig>()
+        .preview
+        .enabled;
+    if !preview_enabled {
         return;
     }
 
-    commands.spawn((
-        Camera2d::default(),
-        Camera {
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
-            ..default()
-        },
-        PreviewCamera,
-    ));
+    let render_target_handle = world.resource::<ImageHandle>().0.clone();
+    let preview_camera_exists = {
+        let mut query = world.query_filtered::<Entity, With<PreviewCamera>>();
+        query.iter(world).next().is_some()
+    };
+    if !preview_camera_exists {
+        world.spawn((
+            Camera2d::default(),
+            Camera {
+                order: 1,
+                clear_color: ClearColorConfig::Custom(Color::BLACK),
+                ..default()
+            },
+            PreviewCamera,
+        ));
+    }
 
-    commands.spawn((
-        Node {
-            width: Val::Percent(100.0),
-            height: Val::Percent(100.0),
-            ..default()
-        },
-        // Render as a background; help text UI remains on top.
-        GlobalZIndex(-1),
-        ImageNode::new(render_target_handle.0.clone()),
-        PreviewImageNode,
-    ));
+    let preview_node_exists = {
+        let mut query = world.query_filtered::<Entity, With<PreviewImageNode>>();
+        query.iter(world).next().is_some()
+    };
+    if !preview_node_exists {
+        world.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            // Render as a background; help text UI remains on top.
+            GlobalZIndex(-1),
+            ImageNode::new(render_target_handle),
+            PreviewImageNode,
+        ));
+    }
+}
+
+pub fn copy_transform(target: &Transform, our: &mut Transform) {
+    our.translation = target.translation;
+    our.scale = target.scale;
+    our.rotation = target.rotation;
 }
 
 pub fn sync_capture_camera(
     target: Single<&Transform, (With<CaptureSource>, Without<CaptureCamera>)>,
     mut our: Single<&mut Transform, (With<CaptureCamera>, Without<CaptureSource>)>,
 ) {
-    our.translation = target.translation;
-    our.scale = target.scale;
-    our.rotation = target.rotation;
+    copy_transform(&target, &mut our);
 }
 
 #[derive(Clone, Copy, Debug)]

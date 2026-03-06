@@ -1,0 +1,79 @@
+# dupast configuration file
+# Copy this to dupast.toml in your project root
+
+# Similarity threshold (0.0 - 1.0)
+# Pairs with similarity below this threshold will not be reported
+# Can be overridden with: -t <PERCENT> or DUPAST_THRESHOLD env var
+threshold = 0.20
+
+# Paths to scan when no CLI PATHS are provided
+# Supports files or directories, relative to current working directory
+paths = ["src"]
+
+# Minimum tokens to consider as duplicate code block
+# Blocks (functions, statements) with fewer tokens than this will be ignored
+# Higher values reduce noise for very small functions
+# Can be overridden with: -L <N> or DUPAST_MIN_LINES env var
+min_block_lines = 3
+
+# Check intra-file duplication
+# When true, also detects duplicates within the same file
+# Can be overridden with: --no-intra-file flag
+check_intra_file = true
+
+# Output format
+# Options: "human", "json", "sarif"
+# Can be overridden with: -o <FORMAT> or DUPAST_OUTPUT_FORMAT env var
+output_format = "human"
+
+# File extensions to scan
+# Add or remove extensions based on your project
+extensions = ["c", "cpp", "cc", "cxx", "hpp", "h", "hxx", "go", "java", "js", "mjs", "cjs", "php", "rs", "ts", "tsx"]
+
+# Maximum file size to process in bytes (default: 1MB)
+# Larger files are skipped to avoid memory issues
+max_file_size = 1_048_576
+
+# Number of parallel jobs (0 = CPU count)
+# Set to 1 to disable parallelism for debugging
+# Can be overridden with: -j <N> or DUPAST_JOBS env var
+jobs = 0
+
+# Frequency penalty for token similarity (0.0 - 10.0)
+# Higher values penalize common tokens more heavily
+# 0.0 = no penalty (pure TF-IDF cosine similarity)
+# 1.0 = light penalty
+# 2.0 = moderate penalty (default) - good for general use
+# 5.0+ = strong penalty - only unique/rare tokens contribute to similarity
+# This helps distinguish structural similarity from common boilerplate code
+# Can be overridden with: -F <PENALTY> or DUPAST_FREQUENCY_PENALTY env var
+frequency_penalty = 5.0
+
+# Enable fuzzy identifier matching using semantic vectors
+# When true, detects similarity even when identifiers are renamed
+# Example: calculateSum(a, b) ≈ computeSum(x, y) via semantic similarity
+# Uses a 13,000+ word thesaurus for synonym expansion
+# NOTE: Synonym graph (27KB) is only loaded when this is true
+# Can be overridden with: --fuzzy-identifiers flag or DUPAST_FUZZY_IDENTIFIERS env var
+fuzzy_identifiers = true
+
+# Minimum similarity threshold for fuzzy identifier matching (0.0 - 1.0)
+# Only applies when fuzzy_identifiers = true
+# 0.5 = very permissive (many matches)
+# 0.6 = moderate (default) - balances recall and precision
+# 0.8 = strict (only very similar names)
+# Can be overridden with: --fuzzy-threshold <THRESHOLD> or DUPAST_FUZZY_THRESHOLD env var
+fuzzy_identifier_threshold = 0.2
+
+# Color output model
+# Options: "auto", "always", "never"
+# auto: Use colors if output is a terminal (default)
+# always: Always use colors (even when piped)
+# never: Never use colors
+# Can be overridden with: --color <WHEN> or DUPAST_COLOR env var
+# color = "auto"
+
+# Quiet mode (suppress non-error output)
+# When true, only shows warnings/errors, no summary or progress
+# Can be overridden with: -q / --quiet flag or DUPAST_QUIET env var
+# quiet = false

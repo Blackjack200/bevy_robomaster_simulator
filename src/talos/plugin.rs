@@ -1,4 +1,4 @@
-use crate::capture::driver::CaptureConfig;
+use crate::capture::driver::{CaptureConfig, CapturedFrameKind};
 use crate::capture::{IMAGE_HEIGHT, IMAGE_WIDTH};
 use crate::components::{
     Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim,
@@ -62,6 +62,7 @@ impl Plugin for TalosPlugin {
             width: self.config.width,
             height: self.config.height,
             texture_format: self.config.texture_format,
+            frame_kind: CapturedFrameKind::Rgb8,
         };
 
         let capture_context = TalosCaptureContext {

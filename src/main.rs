@@ -31,15 +31,6 @@ use crate::auto_gen::AutoGenPlugin;
 use crate::components::{CameraMode, FollowingType, ProjectileCooldown, SubscribeAutoAim};
 use crate::config::{ConfigPlugin, SimulationConfig};
 use crate::dataset::prelude::DatasetPlugin;
-
-/// Command-line arguments for the application
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Enable auto dataset generation mode
-    #[arg(long)]
-    auto_gen: bool,
-}
 use crate::handler::{on_activate, on_hit};
 use crate::robomaster::prelude::RoboMasterPlugins;
 use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
@@ -50,6 +41,15 @@ use crate::systems::{
     remote_gimbal_controls, remote_vehicle_controls, screenshot_on_f2, screenshot_saving,
     setup_projectile, switch_slapper_control, update_help_text, vehicle_controls,
 };
+
+/// Command-line arguments for the application
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Enable auto dataset generation mode
+    #[arg(long)]
+    auto_gen: bool,
+}
 
 #[cfg(feature = "ros2")]
 use crate::ros2::plugin::ROS2Plugin;
@@ -66,6 +66,22 @@ fn present_mode_from_config(value: &str) -> Option<PresentMode> {
         "immediate" => Some(PresentMode::Immediate),
         _ => None,
     }
+}
+
+#[cfg(feature = "talos")]
+fn should_enable_talos_plugin(app: &App) -> bool {
+    #[cfg(feature = "ros2")]
+    let ros_capture_active = app
+        .world()
+        .contains_resource::<crate::ros2::capture::RosCaptureContext>();
+    #[cfg(not(feature = "ros2"))]
+    let ros_capture_active = false;
+
+    let force_talos_capture = std::env::var("DAEDALUS_FORCE_TALOS_CAPTURE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    !ros_capture_active || force_talos_capture
 }
 
 fn main() {
@@ -224,8 +240,15 @@ fn main() {
 
     #[cfg(feature = "talos")]
     {
-        app.add_plugins(TalosPlugin::default());
-        info!("talos integration enabled");
+        if should_enable_talos_plugin(&app) {
+            app.add_plugins(TalosPlugin::default());
+            info!("talos integration enabled");
+        } else {
+            info!(
+                "talos integration skipped: ROS2 capture already active \
+                 (set DAEDALUS_FORCE_TALOS_CAPTURE=1 to override)"
+            );
+        }
     }
 
     app.run();

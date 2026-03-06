@@ -22,6 +22,27 @@ shadows = true
 # Main on-screen camera anti-aliasing.
 main_camera_fxaa = true
 
+[capture.color]
+# RGB capture resolution for existing camera pipeline.
+width = 1440
+height = 1080
+
+[capture.depth]
+# Depth capture resolution for livox-compatible point cloud output.
+width = 1280
+height = 720
+near = 0.1
+far = 80.0
+
+[livox_ros]
+enabled = true
+frame_id = "camera_link"
+publish_freq = 10.0
+points_per_second = 400000
+line_num = 20
+tag_default = 0
+intensity_default = 100.0
+
 [physics]
 substep_count = 5              # physics substeps per frame
 

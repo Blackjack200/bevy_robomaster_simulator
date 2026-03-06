@@ -7,7 +7,7 @@ use futures::channel::mpsc;
 use futures::channel::mpsc::{Sender, TryRecvError};
 use r2r::geometry_msgs::msg::PoseStamped;
 use r2r::rm_interfaces::msg::GimbalCmd;
-use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image};
+use r2r::sensor_msgs::msg::{CameraInfo, CompressedImage, Image, PointCloud2};
 use r2r::tf2_msgs::msg::TFMessage;
 use r2r::visualization_msgs::msg::Marker;
 use r2r::{Node, QosProfile, WrappedTypesupport};
@@ -146,6 +146,7 @@ topic!(
         "/camera_info" as CameraInfo as CameraInfoTopic;
         "/image_raw" as Image as ImageRawTopic;
         "/image_compressed" as CompressedImage as ImageCompressedTopic;
+        "/livox/lidar" as PointCloud2 as LivoxPointCloudTopic;
         "/tf" as TFMessage as GlobalTransformTopic;
         "/simulator/marker" as Marker as OutpostMarkerTopic;
         "/gimbal_pose" as PoseStamped as GimbalPoseTopic;

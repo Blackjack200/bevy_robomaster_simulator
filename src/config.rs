@@ -15,6 +15,10 @@ pub struct SimulationConfig {
     pub preview: PreviewConfig,
     #[serde(default)]
     pub render: RenderConfig,
+    #[serde(default)]
+    pub capture: CapturePipelineConfig,
+    #[serde(default)]
+    pub livox_ros: LivoxRosConfig,
     pub physics: PhysicsConfig,
     pub vehicle: VehicleConfig,
     pub projectile: ProjectileConfig,
@@ -138,6 +142,84 @@ pub struct CameraConfig {
     pub mouse_sensitivity: f32,
 }
 
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct CapturePipelineConfig {
+    pub color: CaptureStreamConfig,
+    pub depth: DepthCaptureConfig,
+}
+
+impl Default for CapturePipelineConfig {
+    fn default() -> Self {
+        Self {
+            color: CaptureStreamConfig::default(),
+            depth: DepthCaptureConfig::default(),
+        }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct CaptureStreamConfig {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Default for CaptureStreamConfig {
+    fn default() -> Self {
+        Self {
+            width: 1440,
+            height: 1080,
+        }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct DepthCaptureConfig {
+    pub width: u32,
+    pub height: u32,
+    pub near: f32,
+    pub far: f32,
+}
+
+impl Default for DepthCaptureConfig {
+    fn default() -> Self {
+        Self {
+            width: 640,
+            height: 480,
+            near: 0.1,
+            far: 80.0,
+        }
+    }
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct LivoxRosConfig {
+    pub enabled: bool,
+    pub frame_id: String,
+    pub publish_freq: f32,
+    pub points_per_second: u32,
+    pub line_num: u8,
+    pub tag_default: u8,
+    pub intensity_default: f32,
+}
+
+impl Default for LivoxRosConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            frame_id: "livox_frame".to_string(),
+            publish_freq: 10.0,
+            points_per_second: 100_000,
+            line_num: 6,
+            tag_default: 0,
+            intensity_default: 100.0,
+        }
+    }
+}
+
 impl SimulationConfig {
     pub fn load() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let content = std::fs::read_to_string("config.toml")?;
@@ -154,6 +236,8 @@ impl Default for SimulationConfig {
                 debug: DebugConfig::default(),
                 preview: PreviewConfig::default(),
                 render: RenderConfig::default(),
+                capture: CapturePipelineConfig::default(),
+                livox_ros: LivoxRosConfig::default(),
                 physics: PhysicsConfig { substep_count: 10 },
                 vehicle: VehicleConfig {
                     rotation_speed: 3.0,

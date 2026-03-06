@@ -1,6 +1,9 @@
 use crate::capture::{
     CameraFov, CaptureSource, ImageHandle, compute_camera_intrinsics,
-    driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
+    driver::{
+        CameraCapturePlugin, CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler,
+        SnapshotAsync, SnapshotSync,
+    },
     setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
 use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
@@ -76,21 +79,25 @@ struct TalosSnapshot {
 }
 
 impl SnapshotAsync for TalosSnapshot {
-    fn captured(&mut self, width: u32, height: u32, image: &[u8]) {
-        let expected_size = (width * height * 3) as usize;
-        if image.len() != expected_size {
+    fn captured(&mut self, frame: CapturedFrame<'_>) {
+        if frame.kind != CapturedFrameKind::Rgb8 {
+            return;
+        }
+
+        let expected_size = (frame.width * frame.height * 3) as usize;
+        if frame.data.len() != expected_size {
             warn!(
                 "图像大小不匹配: expected {} bytes, got {} bytes",
                 expected_size,
-                image.len()
+                frame.data.len()
             );
             return;
         }
 
-        if width != IMAGE_WIDTH || height != IMAGE_HEIGHT {
+        if frame.width != IMAGE_WIDTH || frame.height != IMAGE_HEIGHT {
             warn!(
                 "image reesolution mismatched: expected {}x{}, got {}x{}",
-                IMAGE_WIDTH, IMAGE_HEIGHT, width, height
+                IMAGE_WIDTH, IMAGE_HEIGHT, frame.width, frame.height
             );
             return;
         }
@@ -132,7 +139,7 @@ impl SnapshotAsync for TalosSnapshot {
             }
 
             // Then publish image (with the same frame_seq)
-            publisher.publish_image(image, self.frame_seq, self.timestamp_ns);
+            publisher.publish_image(frame.data, self.frame_seq, self.timestamp_ns);
         }
     }
 }

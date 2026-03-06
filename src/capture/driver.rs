@@ -9,8 +9,9 @@ use bevy::{
         render_asset::RenderAssets,
         render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
         render_resource::{
-            Buffer, BufferDescriptor, BufferUsages, Extent3d, MapMode, TexelCopyBufferInfo,
-            TexelCopyBufferLayout, TextureFormat, TextureUsages,
+            Buffer, BufferDescriptor, BufferUsages, Extent3d, MapMode, Origin3d,
+            TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
+            TextureFormat, TextureUsages,
         },
         renderer::{RenderContext, RenderDevice},
     },
@@ -20,33 +21,56 @@ use std::sync::{Arc, Mutex};
 
 const MAX_IN_FLIGHT_FRAMES: usize = 2;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapturedFrameKind {
+    Rgb8,
+    Depth32F,
+}
+
 #[derive(Resource, Clone)]
 pub struct CaptureConfig {
     pub width: u32,
     pub height: u32,
     pub texture_format: TextureFormat,
+    pub frame_kind: CapturedFrameKind,
+}
+
+pub struct CapturedFrame<'a> {
+    pub kind: CapturedFrameKind,
+    pub width: u32,
+    pub height: u32,
+    pub data: &'a [u8],
 }
 
 type ToSyncSnapshot = Box<dyn GpuCaptureHandler>;
 type DynSnapshotSync = Box<dyn SnapshotSync>;
-#[derive(Resource, Deref, DerefMut)]
-pub struct GlobalCaptureHandler(pub Arc<Vec<ToSyncSnapshot>>);
 
-#[derive(Resource)]
+#[derive(Resource, Default, Deref, DerefMut)]
+struct ImageCopiers(Vec<ImageCopier>);
+
+#[derive(Resource, Default)]
+struct ImageCopyDriverInstalled(bool);
+
 struct ImageCopier {
+    config: CaptureConfig,
     src_image: Handle<Image>,
-    extent: Extent3d,
-    queue: Mutex<VecDeque<(Buffer, Vec<DynSnapshotSync>)>>,
+    queue: Mutex<VecDeque<(Buffer, Vec<DynSnapshotSync>, u32, u32, TextureFormat)>>,
     free_buffers: Arc<Mutex<Vec<Buffer>>>,
+    snapshots: Arc<Vec<ToSyncSnapshot>>,
 }
 
 impl ImageCopier {
-    pub fn new(src_image: Handle<Image>, extent: Extent3d) -> ImageCopier {
+    pub fn new(
+        config: CaptureConfig,
+        src_image: Handle<Image>,
+        snapshots: Arc<Vec<ToSyncSnapshot>>,
+    ) -> ImageCopier {
         ImageCopier {
+            config,
             src_image,
-            extent,
             queue: Mutex::new(VecDeque::new()),
             free_buffers: Arc::new(Mutex::new(Vec::new())),
+            snapshots,
         }
     }
 
@@ -112,6 +136,21 @@ fn padded_rgba_to_rgb(
     }
 }
 
+fn capture_texture_aspect(format: TextureFormat) -> TextureAspect {
+    if matches!(
+        format,
+        TextureFormat::Depth16Unorm
+            | TextureFormat::Depth24Plus
+            | TextureFormat::Depth24PlusStencil8
+            | TextureFormat::Depth32Float
+            | TextureFormat::Depth32FloatStencil8
+    ) {
+        TextureAspect::DepthOnly
+    } else {
+        TextureAspect::All
+    }
+}
+
 pub trait SnapshotSync: Send {
     fn captured(
         self: Box<Self>,
@@ -121,7 +160,7 @@ pub trait SnapshotSync: Send {
 }
 
 pub trait SnapshotAsync: Send {
-    fn captured(&mut self, width: u32, height: u32, image: &[u8]);
+    fn captured(&mut self, frame: CapturedFrame<'_>);
 }
 
 pub trait GpuCaptureHandler: Send + Sync + 'static {
@@ -141,51 +180,66 @@ impl render_graph::Node for ImageCopyDriver {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        let image_copier = world.resource::<ImageCopier>();
-        let gpu_images = world.get_resource::<RenderAssets<GpuImage>>().unwrap();
-        let hdr = world.get_resource::<GlobalCaptureHandler>();
+        let Some(copiers) = world.get_resource::<ImageCopiers>() else {
+            return Ok(());
+        };
+        let Some(gpu_images) = world.get_resource::<RenderAssets<GpuImage>>() else {
+            return Ok(());
+        };
 
-        let src_image = gpu_images.get(&image_copier.src_image).unwrap();
+        for copier in copiers.iter() {
+            let Some(src_image) = gpu_images.get(&copier.src_image) else {
+                continue;
+            };
 
-        let block_dimensions = src_image.texture_format.block_dimensions();
-        let block_size = src_image.texture_format.block_copy_size(None).unwrap();
-        let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(
-            (src_image.size.width as usize / block_dimensions.0 as usize) * block_size as usize,
-        );
+            let block_dimensions = src_image.texture_format.block_dimensions();
+            let block_size = src_image.texture_format.block_copy_size(None).unwrap();
+            let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(
+                (src_image.size.width as usize / block_dimensions.0 as usize) * block_size as usize,
+            );
+            let buffer_size = padded_bytes_per_row as u64 * src_image.size.height as u64;
+            let buffer = copier.acquire_buffer(render_context.render_device(), buffer_size);
 
-        let snapshot: Vec<DynSnapshotSync> = hdr
-            .map(|hdr| hdr.iter().filter_map(|v| v.captured(world)).collect())
-            .unwrap_or_default();
-        let buffer_size = padded_bytes_per_row as u64 * src_image.size.height as u64;
-        let buffer = image_copier.acquire_buffer(render_context.render_device(), buffer_size);
+            let snapshot: Vec<DynSnapshotSync> = copier
+                .snapshots
+                .iter()
+                .filter_map(|handler| handler.captured(world))
+                .collect();
 
-        render_context.command_encoder().copy_texture_to_buffer(
-            src_image.texture.as_image_copy(),
-            TexelCopyBufferInfo {
-                buffer: &buffer,
-                layout: TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(
-                        std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
-                            .unwrap()
-                            .into(),
-                    ),
-                    rows_per_image: None,
+            render_context.command_encoder().copy_texture_to_buffer(
+                TexelCopyTextureInfo {
+                    texture: &src_image.texture,
+                    mip_level: 0,
+                    origin: Origin3d::ZERO,
+                    aspect: capture_texture_aspect(src_image.texture_format),
                 },
-            },
-            src_image.size,
-        );
-        image_copier
-            .queue
-            .lock()
-            .unwrap()
-            .push_back((buffer, snapshot));
+                TexelCopyBufferInfo {
+                    buffer: &buffer,
+                    layout: TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(
+                            std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
+                                .unwrap()
+                                .into(),
+                        ),
+                        rows_per_image: None,
+                    },
+                },
+                src_image.size,
+            );
 
-        // Keep only a small number of in-flight readbacks; drop old frames to avoid stalls/jitter.
-        let mut queue = image_copier.queue.lock().unwrap();
-        while queue.len() > MAX_IN_FLIGHT_FRAMES {
-            if let Some((buffer, _)) = queue.pop_front() {
-                image_copier.free_buffers.lock().unwrap().push(buffer);
+            let mut queue = copier.queue.lock().unwrap();
+            queue.push_back((
+                buffer,
+                snapshot,
+                src_image.size.width,
+                src_image.size.height,
+                src_image.texture_format,
+            ));
+            while queue.len() > MAX_IN_FLIGHT_FRAMES {
+                if let Some((buffer, _, _, _, _)) = queue.pop_front() {
+                    copier.free_buffers.lock().unwrap().push(buffer);
+                }
             }
         }
         Ok(())
@@ -193,76 +247,113 @@ impl render_graph::Node for ImageCopyDriver {
 }
 
 fn receive_image_from_buffer(mut world: DeferredWorld) {
-    let image_copier = world.resource::<ImageCopier>();
-    let config = world.resource::<CaptureConfig>().clone();
-    let (width, height, texture_format) = (config.width, config.height, config.texture_format);
+    let copier_count = world.resource::<ImageCopiers>().len();
+    if copier_count == 0 {
+        return;
+    }
 
-    let (buffer, snapshots) = {
-        let mut guard = image_copier.queue.lock().unwrap();
-        let Some(next) = guard.pop_front() else {
-            return;
-        };
-        next
-    };
-
-    let free_buffers = image_copier.free_buffers.clone();
-    let (s, r) = futures::channel::oneshot::channel();
-    let buffer_slice = buffer.slice(..);
-    let buffer_for_map = buffer.clone();
-    buffer_slice.map_async(MapMode::Read, move |res| {
-        res.expect("Failed to map buffer");
-        let buffer_slice = buffer_for_map.slice(..);
-        let data = buffer_slice.get_mapped_range();
-        let dat = data.to_vec();
-        drop(data);
-        buffer_for_map.unmap();
-        free_buffers.lock().unwrap().push(buffer_for_map);
-        s.send(dat).expect("Failed to send map update")
-    });
-
-    let snapshots: Vec<Box<dyn SnapshotAsync>> = snapshots
-        .into_iter()
-        .map(|v| v.captured(&mut world, &config))
-        .collect();
-
-    AsyncComputeTaskPool::get()
-        .spawn(async move {
-            let padded = r.await.expect("Failed to receive the map_async message");
-            let image_data = padded_rgba_to_rgb(&padded, width, height, texture_format)
-                .unwrap_or_else(|| {
-                    let pixel_size = texture_format
-                        .pixel_size()
-                        .expect("Unsupported capture texture format");
-                    let row_bytes = width as usize * pixel_size;
-                    let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
-                    let unpadded = unpad_rows(&padded, row_bytes, aligned_row_bytes, height);
-                    let mut bevy_image = Image::new_target_texture(
+    for idx in 0..copier_count {
+        let next = {
+            let copiers = world.resource::<ImageCopiers>();
+            let Some(copier) = copiers.get(idx) else {
+                continue;
+            };
+            let mut guard = copier.queue.lock().unwrap();
+            guard
+                .pop_front()
+                .map(|(buffer, snapshots, width, height, texture_format)| {
+                    (
+                        buffer,
+                        snapshots,
                         width,
                         height,
                         texture_format,
-                        Some(texture_format),
-                    );
-                    bevy_image.data = Some(unpadded);
-                    bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
-                });
-            let image_data = image_data.as_slice();
-            for mut snapshot in snapshots {
-                snapshot.captured(width, height, image_data);
-            }
-        })
-        .detach();
+                        copier.free_buffers.clone(),
+                        copier.config.clone(),
+                    )
+                })
+        };
+
+        let Some((buffer, snapshots, width, height, texture_format, free_buffers, config)) = next
+        else {
+            continue;
+        };
+
+        let (s, r) = futures::channel::oneshot::channel();
+        let buffer_slice = buffer.slice(..);
+        let buffer_for_map = buffer.clone();
+        buffer_slice.map_async(MapMode::Read, move |res| {
+            res.expect("Failed to map buffer");
+            let buffer_slice = buffer_for_map.slice(..);
+            let data = buffer_slice.get_mapped_range();
+            let dat = data.to_vec();
+            drop(data);
+            buffer_for_map.unmap();
+            free_buffers.lock().unwrap().push(buffer_for_map);
+            s.send(dat).expect("Failed to send map update");
+        });
+
+        let snapshots: Vec<Box<dyn SnapshotAsync>> = snapshots
+            .into_iter()
+            .map(|v| v.captured(&mut world, &config))
+            .collect();
+        let frame_kind = config.frame_kind;
+
+        AsyncComputeTaskPool::get()
+            .spawn(async move {
+                let padded = r.await.expect("Failed to receive the map_async message");
+                let frame_bytes = match frame_kind {
+                    CapturedFrameKind::Rgb8 => {
+                        padded_rgba_to_rgb(&padded, width, height, texture_format).unwrap_or_else(
+                            || {
+                                let pixel_size = texture_format
+                                    .pixel_size()
+                                    .expect("Unsupported capture texture format");
+                                let row_bytes = width as usize * pixel_size;
+                                let aligned_row_bytes =
+                                    RenderDevice::align_copy_bytes_per_row(row_bytes);
+                                let unpadded =
+                                    unpad_rows(&padded, row_bytes, aligned_row_bytes, height);
+                                let mut bevy_image = Image::new_target_texture(
+                                    width,
+                                    height,
+                                    texture_format,
+                                    Some(texture_format),
+                                );
+                                bevy_image.data = Some(unpadded);
+                                bevy_image.try_into_dynamic().unwrap().to_rgb8().into_raw()
+                            },
+                        )
+                    }
+                    CapturedFrameKind::Depth32F => {
+                        let pixel_size = texture_format
+                            .pixel_size()
+                            .expect("Unsupported depth capture texture format");
+                        let row_bytes = width as usize * pixel_size;
+                        let aligned_row_bytes = RenderDevice::align_copy_bytes_per_row(row_bytes);
+                        unpad_rows(&padded, row_bytes, aligned_row_bytes, height)
+                    }
+                };
+
+                for mut snapshot in snapshots {
+                    snapshot.captured(CapturedFrame {
+                        kind: frame_kind,
+                        width,
+                        height,
+                        data: frame_bytes.as_slice(),
+                    });
+                }
+            })
+            .detach();
+    }
 }
 
 pub struct CameraCapturePlugin {
     config: CaptureConfig,
-    extent: Extent3d,
-    texture_format: TextureFormat,
     snapshots: Arc<Vec<ToSyncSnapshot>>,
     handle: Handle<Image>,
+    expose_config_resource: bool,
 }
-
-#[derive(Resource, Deref, DerefMut)]
-struct RateLimiter(Mutex<Timer>);
 
 impl CameraCapturePlugin {
     pub fn new(
@@ -287,36 +378,73 @@ impl CameraCapturePlugin {
 
         (
             Self {
-                config: config.clone(),
-                extent,
+                config,
                 snapshots: Arc::new(snapshots),
                 handle: handle.clone(),
-                texture_format: config.texture_format,
+                expose_config_resource: true,
             },
             handle,
         )
     }
+
+    pub fn from_existing_handle(
+        config: CaptureConfig,
+        handle: Handle<Image>,
+        snapshots: Vec<ToSyncSnapshot>,
+    ) -> Self {
+        Self {
+            config,
+            snapshots: Arc::new(snapshots),
+            handle,
+            expose_config_resource: false,
+        }
+    }
 }
 
 impl Plugin for CameraCapturePlugin {
-    fn build(&self, app: &mut App) {
-        let config = self.config.clone();
+    fn is_unique(&self) -> bool {
+        false
+    }
 
-        app.insert_resource(config);
+    fn build(&self, app: &mut App) {
+        if self.expose_config_resource {
+            app.insert_resource(self.config.clone());
+        }
 
         let render_app = app.sub_app_mut(RenderApp);
-
-        let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        graph.add_node(ImageCopy, ImageCopyDriver);
-        graph.add_node_edge(bevy::render::graph::CameraDriverLabel, ImageCopy);
-
+        render_app.world_mut().init_resource::<ImageCopiers>();
         render_app
-            .insert_resource(GlobalCaptureHandler(self.snapshots.clone()))
-            .insert_resource(self.config.clone())
-            .insert_resource(ImageCopier::new(self.handle.clone(), self.extent))
-            .add_systems(
+            .world_mut()
+            .init_resource::<ImageCopyDriverInstalled>();
+
+        {
+            let mut copiers = render_app.world_mut().resource_mut::<ImageCopiers>();
+            copiers.push(ImageCopier::new(
+                self.config.clone(),
+                self.handle.clone(),
+                self.snapshots.clone(),
+            ));
+        }
+
+        let installed = render_app.world().resource::<ImageCopyDriverInstalled>().0;
+        if !installed {
+            let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
+            graph.add_node(ImageCopy, ImageCopyDriver);
+            graph.add_node_edge(bevy::render::graph::CameraDriverLabel, ImageCopy);
+            drop(graph);
+
+            render_app
+                .world_mut()
+                .resource_mut::<ImageCopyDriverInstalled>()
+                .0 = true;
+            render_app.add_systems(
                 Render,
                 receive_image_from_buffer.after(RenderSystems::Render),
             );
+        }
+
+        if self.expose_config_resource {
+            render_app.insert_resource(self.config.clone());
+        }
     }
 }

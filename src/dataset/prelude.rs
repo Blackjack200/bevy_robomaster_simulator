@@ -1,5 +1,7 @@
 use crate::capture::CaptureCamera;
-use crate::capture::driver::{CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync};
+use crate::capture::driver::{
+    CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler, SnapshotAsync, SnapshotSync,
+};
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{
@@ -160,11 +162,14 @@ struct DatasetSnapshot {
 }
 
 impl SnapshotAsync for DatasetSnapshot {
-    fn captured(&mut self, width: u32, height: u32, image: &[u8]) {
+    fn captured(&mut self, frame: CapturedFrame<'_>) {
+        if frame.kind != CapturedFrameKind::Rgb8 {
+            return;
+        }
         self.writer
             .lock()
             .unwrap()
-            .write_entry(height, width, image, &self.data)
+            .write_entry(frame.height, frame.width, frame.data, &self.data)
             .unwrap();
     }
 }

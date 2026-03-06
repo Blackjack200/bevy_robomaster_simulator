@@ -6,10 +6,10 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::render::{Extract, RenderApp};
 
-use crate::capture::driver::{CameraCapturePlugin, CaptureConfig};
+use crate::capture::driver::{CameraCapturePlugin, CaptureConfig, CapturedFrameKind};
 use crate::capture::{
-    CameraFov, CaptureCamera, CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH, ImageHandle,
-    setup_capture_camera,
+    CameraFov, CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH, ImageHandle, setup_capture_camera,
+    sync_capture_camera,
 };
 use crate::components::Infantry;
 use crate::dataset::prelude::{DatasetPlugin, capture};
@@ -57,6 +57,7 @@ impl Plugin for AutoGenPlugin {
             width: IMAGE_WIDTH,
             height: IMAGE_HEIGHT,
             texture_format: TextureFormat::Bgra8UnormSrgb,
+            frame_kind: CapturedFrameKind::Rgb8,
         };
 
         use crate::dataset::prelude::DatasetSnapshotCreator;
@@ -72,7 +73,7 @@ impl Plugin for AutoGenPlugin {
             .insert_resource(CameraFov(FOV))
             .insert_resource(capture_config)
             .add_systems(Startup, (setup_auto_gen, setup_capture_camera))
-            .add_systems(Update, (auto_gen_loop, sync_camera));
+            .add_systems(Update, (auto_gen_loop, sync_capture_camera));
 
         // Add capture system to RenderApp's ExtractSchedule
         app.sub_app_mut(RenderApp)
@@ -156,15 +157,6 @@ fn setup_auto_gen(mut commands: Commands, asset_server: Res<AssetServer>) {
         frame_count: 0,
         capturing: false,
     });
-}
-
-fn sync_camera(
-    target: Single<&Transform, (With<CaptureSource>, Without<CaptureCamera>)>,
-    mut our: Single<&mut Transform, (With<CaptureCamera>, Without<CaptureSource>)>,
-) {
-    our.translation = target.translation;
-    our.scale = target.scale;
-    our.rotation = target.rotation;
 }
 
 fn auto_gen_loop(

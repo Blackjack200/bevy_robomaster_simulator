@@ -2,7 +2,10 @@
 
 use crate::capture::{
     CameraFov, ImageHandle, compute_camera_intrinsics,
-    driver::{CameraCapturePlugin, CaptureConfig, GpuCaptureHandler, SnapshotAsync, SnapshotSync},
+    driver::{
+        CameraCapturePlugin, CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler,
+        SnapshotAsync, SnapshotSync,
+    },
     setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
 use crate::dataset::prelude::DatasetSnapshotCreator;
@@ -40,28 +43,35 @@ struct RosSnapshot {
 }
 
 impl SnapshotAsync for RosSnapshot {
-    fn captured(&mut self, width: u32, height: u32, image: &[u8]) {
+    fn captured(&mut self, frame: CapturedFrame<'_>) {
+        if frame.kind != CapturedFrameKind::Rgb8 {
+            return;
+        }
+
         let optical_frame_hdr = Header {
             stamp: self.stamp.take(),
             frame_id: "camera_optical_frame".to_string(),
         };
         self.ctx.camera_info.publish(ros_camera_info(
             optical_frame_hdr.clone(),
-            width,
-            height,
+            frame.width,
+            frame.height,
             self.ctx.fov_y,
         ));
         if self.ctx.publish_compressed {
             self.ctx.image_compressed.publish(compress_image(
                 optical_frame_hdr,
-                width,
-                height,
-                image,
+                frame.width,
+                frame.height,
+                frame.data,
             ));
         } else {
-            self.ctx
-                .image_raw
-                .publish(raw_image(optical_frame_hdr, width, height, image));
+            self.ctx.image_raw.publish(raw_image(
+                optical_frame_hdr,
+                frame.width,
+                frame.height,
+                frame.data,
+            ));
         }
     }
 }

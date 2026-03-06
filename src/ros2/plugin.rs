@@ -1,12 +1,13 @@
 use crate::arc_mutex;
-use crate::capture::driver::CaptureConfig;
-use crate::capture::{CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH};
+use crate::capture::CaptureSource;
+use crate::capture::driver::{CaptureConfig, CapturedFrameKind};
 use crate::components::{
     Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim,
 };
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
+use crate::ros2::livox::{RosLivoxContext, RosLivoxPlugin};
 use crate::ros2::prelude::AverageRateLimiter;
 use crate::ros2::prelude::transform;
 use crate::ros2::topic::*;
@@ -26,7 +27,7 @@ use std::time::Duration;
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
 };
@@ -206,7 +207,7 @@ fn capture_rune(
                     pub name as (tf.translation, tf.rotation);
                 }
             }
-            for (entity, transform, armor) in armor {
+            for (entity, _transform, armor) in armor {
                 let name = format!("armor_{:?}", armor.id).to_string().to_lowercase();
                 let tf = center.get(qq.of(entity).suffix("CENTER").any().one().unwrap()).unwrap().1.compute_transform();
                 pub name as (tf.translation, tf.rotation);
@@ -216,7 +217,6 @@ fn capture_rune(
 
     let stamp = Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
     for (entity, tf, armor) in armor {
-        let name = format!("armor_{:?}", armor.id).to_string().to_lowercase();
         let mut tff = center
             .get(qq.of(entity).suffix("CENTER").any().one().unwrap())
             .unwrap()
@@ -342,6 +342,11 @@ pub struct ROS2Plugin {}
 
 impl Plugin for ROS2Plugin {
     fn build(&self, app: &mut App) {
+        let sim_config = app
+            .world()
+            .get_resource::<SimulationConfig>()
+            .cloned()
+            .unwrap_or_default();
         let mut node = Node::create(Context::create().unwrap(), "simulator", "robomaster").unwrap();
         let signal_arc = Arc::new(AtomicBool::new(false));
 
@@ -360,21 +365,37 @@ impl Plugin for ROS2Plugin {
             .world_mut()
             .remove_resource::<TopicPublisher<ImageCompressedTopic>>()
             .unwrap();
+        let livox_pointcloud = app
+            .world_mut()
+            .remove_resource::<TopicPublisher<LivoxPointCloudTopic>>()
+            .unwrap();
 
         let clock = arc_mutex!(Clock::create(SystemTime).unwrap());
+        let fov_y = sim_config.camera.fov.to_radians();
+        let color_capture_config = CaptureConfig {
+            width: sim_config.capture.color.width,
+            height: sim_config.capture.color.height,
+            texture_format: TextureFormat::bevy_default(),
+            frame_kind: CapturedFrameKind::Rgb8,
+        };
+        let depth_capture_config = CaptureConfig {
+            width: sim_config.capture.depth.width,
+            height: sim_config.capture.depth.height,
+            texture_format: TextureFormat::Depth32Float,
+            frame_kind: CapturedFrameKind::Depth32F,
+        };
+        let publish_freq = sim_config.livox_ros.publish_freq.max(0.1);
+        let points_per_publish =
+            ((sim_config.livox_ros.points_per_second as f32) / publish_freq).max(1.0) as usize;
 
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
             .add_plugins(RosCapturePlugin {
-                config: CaptureConfig {
-                    width: 1440,
-                    height: 1080,
-                    texture_format: TextureFormat::bevy_default(),
-                },
+                config: color_capture_config,
                 context: RosCaptureContext {
-                    clock,
-                    fov_y: 45.0,
+                    clock: clock.clone(),
+                    fov_y,
                     publish_compressed: false,
                     camera_info,
                     image_raw,
@@ -393,5 +414,25 @@ impl Plugin for ROS2Plugin {
                     node.spin_once(Duration::from_millis(1));
                 }
             }))));
+
+        if sim_config.livox_ros.enabled {
+            app.add_plugins(RosLivoxPlugin {
+                config: depth_capture_config,
+                context: RosLivoxContext {
+                    clock,
+                    frame_id: sim_config.livox_ros.frame_id.clone(),
+                    fov_y,
+                    near: sim_config.capture.depth.near,
+                    far: sim_config.capture.depth.far,
+                    publish_period_ns: (1_000_000_000.0 / publish_freq) as u64,
+                    points_per_publish,
+                    line_num: sim_config.livox_ros.line_num.max(1),
+                    tag_default: sim_config.livox_ros.tag_default,
+                    intensity_default: sim_config.livox_ros.intensity_default,
+                    pointcloud: livox_pointcloud,
+                    last_publish_ns: Arc::new(AtomicU64::new(0)),
+                },
+            });
+        }
     }
 }
