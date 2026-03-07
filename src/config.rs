@@ -21,6 +21,8 @@ pub struct SimulationConfig {
     pub livox_ros: LivoxRosConfig,
     pub physics: PhysicsConfig,
     pub vehicle: VehicleConfig,
+    #[serde(default)]
+    pub mecanum: MecanumConfig,
     pub projectile: ProjectileConfig,
     pub camera: CameraConfig,
 }
@@ -97,6 +99,24 @@ pub struct VehicleConfig {
     pub max_speed: f32,
     pub linear_acceleration: f32,
     pub acceleration_exponent: f32,
+}
+
+#[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
+pub struct MecanumConfig {
+    pub wheel_radius_m: f32,
+    pub half_wheelbase_m: f32,
+    pub half_trackwidth_m: f32,
+}
+
+impl Default for MecanumConfig {
+    fn default() -> Self {
+        Self {
+            wheel_radius_m: 0.076,
+            half_wheelbase_m: 0.18,
+            half_trackwidth_m: 0.15,
+        }
+    }
 }
 
 #[derive(Deserialize, Reflect, Clone)]
@@ -247,6 +267,7 @@ impl Default for SimulationConfig {
                     linear_acceleration: 8.0,
                     acceleration_exponent: 10.0,
                 },
+                mecanum: MecanumConfig::default(),
                 projectile: ProjectileConfig {
                     lifetime: 5.0,
                     speed: 25.0,

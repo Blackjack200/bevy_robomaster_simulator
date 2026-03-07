@@ -80,6 +80,45 @@ pub struct CameraInfo {
 const _: () = assert!(size_of::<CameraInfo>() == 128);
 
 #[repr(C, align(64))]
+#[derive(Debug, Clone, Copy)]
+pub struct ChassisObservation {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
+    pub dt_s: f32,
+    pub v_body: [f32; 2],
+    pub wz_radps: f32,
+    pub wheel_linear_mps: [f32; 4],
+    pub wheel_angular_radps: [f32; 4],
+    pub a_body: [f32; 2],
+    pub alpha_z_radps2: f32,
+    pub rpy_rad: [f32; 3],
+    pub gyro_xyz_radps: [f32; 3],
+    pub accel_xyz_mps2: [f32; 3],
+    pub _pad: [u8; 16],
+}
+const _: () = assert!(size_of::<ChassisObservation>() == 128);
+
+impl Default for ChassisObservation {
+    fn default() -> Self {
+        Self {
+            frame_seq: 0,
+            timestamp_ns: 0,
+            dt_s: 0.0,
+            v_body: [0.0; 2],
+            wz_radps: 0.0,
+            wheel_linear_mps: [0.0; 4],
+            wheel_angular_radps: [0.0; 4],
+            a_body: [0.0; 2],
+            alpha_z_radps2: 0.0,
+            rpy_rad: [0.0; 3],
+            gyro_xyz_radps: [0.0; 3],
+            accel_xyz_mps2: [0.0; 3],
+            _pad: [0; 16],
+        }
+    }
+}
+
+#[repr(C, align(64))]
 pub struct ImageTripleBuffer {
     pub state: AtomicU8,
     pub write_idx: u8,
@@ -128,9 +167,15 @@ pub struct ShmMetaRegion {
     pub poses: [PoseTripleBuffer; 5],
     pub gimbal_cmd: GimbalTripleBuffer,
     pub camera_info: CameraInfo,
-    pub _pad: [u8; 192],
+    // ABI-compatible extension:
+    // Reuse tail reserved bytes as a dedicated chassis observation payload.
+    // Existing readers that treat this area as padding remain compatible.
+    pub chassis_observation: ChassisObservation,
+    pub _pad: [u8; 64],
 }
 const _: () = assert!(size_of::<ShmMetaRegion>() == 2048);
+const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, camera_info) == 1728);
+const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, chassis_observation) == 1856);
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +184,9 @@ pub enum PoseIndex {
     Odom = 1,
     Muzzle = 2,
     Camera = 3,
+    // Legacy compatibility channel.
+    // New integrations should consume `ShmMetaRegion::chassis_observation` instead.
+    ChassisObservation = 4,
 }
 
 impl Default for ImageTripleBuffer {
@@ -205,7 +253,8 @@ impl Default for ShmMetaRegion {
             ],
             gimbal_cmd: GimbalTripleBuffer::default(),
             camera_info: CameraInfo::default(),
-            _pad: [0; 192],
+            chassis_observation: ChassisObservation::default(),
+            _pad: [0; 64],
         }
     }
 }

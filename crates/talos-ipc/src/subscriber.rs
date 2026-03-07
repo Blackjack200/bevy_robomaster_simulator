@@ -47,4 +47,16 @@ impl ShmSubscriber {
                 != 0
         }
     }
+
+    pub fn chassis_observation(&self) -> Option<ChassisObservation> {
+        unsafe {
+            let meta = self.meta_region.as_ref::<ShmMetaRegion>();
+            let observation = meta.chassis_observation;
+            if observation.timestamp_ns == 0 {
+                None
+            } else {
+                Some(observation)
+            }
+        }
+    }
 }

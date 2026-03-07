@@ -36,10 +36,11 @@ use crate::robomaster::prelude::RoboMasterPlugins;
 use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
 use crate::statistic::ProjectileStatistics;
 use crate::systems::{
-    GameplaySystems, auto_aim_switch, change_appearance, cleanup_projectiles, following_controls,
-    freecam_controls, gimbal_controls, projectile_aerodynamics, projectile_launch,
-    remote_gimbal_controls, remote_vehicle_controls, screenshot_on_f2, screenshot_saving,
-    setup_projectile, switch_slapper_control, update_help_text, vehicle_controls,
+    ChassisObservationFrame, GameplaySystems, PreviousKinematicState, auto_aim_switch,
+    change_appearance, cleanup_projectiles, following_controls, freecam_controls, gimbal_controls,
+    projectile_aerodynamics, projectile_launch, remote_gimbal_controls, remote_vehicle_controls,
+    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control,
+    update_chassis_observation, update_help_text, vehicle_controls,
 };
 
 /// Command-line arguments for the application
@@ -155,6 +156,8 @@ fn main() {
         .add_plugins(ConfigPlugin)
         .init_resource::<CameraMode>()
         .init_resource::<ProjectileStatistics>()
+        .init_resource::<ChassisObservationFrame>()
+        .init_resource::<PreviousKinematicState>()
         .register_type::<ProjectileStatistics>()
         .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
         .insert_resource(SubstepCount(config.physics.substep_count))
@@ -212,6 +215,10 @@ fn main() {
                 )
                     .in_set(GameplaySystems::Cleanup),
             ),
+        )
+        .add_systems(
+            PostUpdate,
+            update_chassis_observation.after(TransformSystems::Propagate),
         )
         .add_systems(
             PostUpdate,

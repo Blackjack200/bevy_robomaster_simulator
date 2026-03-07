@@ -84,6 +84,25 @@ impl ShmPublisher {
         frame_seq: u64,
         timestamp_ns: u64,
     ) {
+        self.publish_pose_with_aux(
+            index,
+            position,
+            quaternion,
+            [0.0; 4],
+            frame_seq,
+            timestamp_ns,
+        );
+    }
+
+    pub fn publish_pose_with_aux(
+        &mut self,
+        index: PoseIndex,
+        position: [f32; 3],
+        quaternion: [f32; 4],
+        aux_f32: [f32; 4],
+        frame_seq: u64,
+        timestamp_ns: u64,
+    ) {
         unsafe {
             let meta = self.meta_region.as_mut::<ShmMetaRegion>();
             let pose_buf = &mut meta.poses[index as usize];
@@ -98,6 +117,7 @@ impl ShmPublisher {
             slot.position = position;
             slot.quaternion = quaternion;
             slot.timestamp_ns = timestamp_ns;
+            slot._pad = aux_f32_to_bytes(aux_f32);
 
             producer.publish();
         }
@@ -107,6 +127,13 @@ impl ShmPublisher {
         unsafe {
             let meta = self.meta_region.as_mut::<ShmMetaRegion>();
             meta.camera_info = info;
+        }
+    }
+
+    pub fn publish_chassis_observation(&mut self, observation: ChassisObservation) {
+        unsafe {
+            let meta = self.meta_region.as_mut::<ShmMetaRegion>();
+            meta.chassis_observation = observation;
         }
     }
 
@@ -136,6 +163,14 @@ impl ShmPublisher {
     fn init_triple_buffer(buf: &mut impl TripleBufferInit) {
         buf.init_state();
     }
+}
+
+fn aux_f32_to_bytes(aux_f32: [f32; 4]) -> [u8; 16] {
+    let mut bytes = [0u8; 16];
+    for (i, value) in aux_f32.iter().enumerate() {
+        bytes[i * 4..(i + 1) * 4].copy_from_slice(&value.to_le_bytes());
+    }
+    bytes
 }
 
 /// Trait for initializing triple buffer state

@@ -54,6 +54,11 @@ max_speed = 4.0                 # m/s - maximum vehicle speed
 linear_acceleration = 6.0       # m/s^2 - linear acceleration
 acceleration_exponent = 6.0    # exponent for non-linear acceleration curve
 
+[mecanum]
+wheel_radius_m = 0.076          # wheel radius (m)
+half_wheelbase_m = 0.18         # half of front-rear wheel spacing (m)
+half_trackwidth_m = 0.15        # half of left-right wheel spacing (m)
+
 [projectile]
 lifetime = 5.0                  # seconds - projectile lifetime
 speed = 25.0                    # m/s - initial speed

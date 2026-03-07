@@ -8,6 +8,7 @@ use crate::capture::{
 };
 use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
 use crate::dataset::prelude::DatasetSnapshotCreator;
+use crate::systems::ChassisObservationFrame;
 use crate::talos::plugin::{to_ros_quat, to_ros_translation};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -29,6 +30,7 @@ pub struct ExtractedPoseData {
     pub gimbal_rotation: Quat,
     pub muzzle_rel_translation: Vec3,
     pub camera_rel_translation: Vec3,
+    pub chassis_observation: ChassisObservation,
     pub valid: bool,
 }
 
@@ -39,6 +41,7 @@ struct CapturedPoseData {
     gimbal_quat: [f32; 4],
     muzzle_rel: [f32; 3],
     camera_rel: [f32; 3],
+    chassis_observation: ChassisObservation,
 }
 
 fn now_ns() -> u64 {
@@ -136,6 +139,30 @@ impl SnapshotAsync for TalosSnapshot {
                     self.frame_seq,
                     self.timestamp_ns,
                 );
+
+                let mut observation = pose.chassis_observation;
+                observation.frame_seq = self.frame_seq;
+                observation.timestamp_ns = self.timestamp_ns;
+                publisher.publish_chassis_observation(observation);
+
+                // Legacy compatibility path for consumers still reading pose slot 4.
+                publisher.publish_pose_with_aux(
+                    PoseIndex::ChassisObservation,
+                    [
+                        observation.v_body[0],
+                        observation.v_body[1],
+                        observation.wz_radps,
+                    ],
+                    observation.wheel_angular_radps,
+                    [
+                        observation.a_body[0],
+                        observation.a_body[1],
+                        observation.alpha_z_radps2,
+                        observation.dt_s,
+                    ],
+                    self.frame_seq,
+                    self.timestamp_ns,
+                );
             }
 
             // Then publish image (with the same frame_seq)
@@ -164,6 +191,7 @@ impl GpuCaptureHandler for TalosSnapshotCreator {
             gimbal_quat: [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
             muzzle_rel: [muzzle.x, muzzle.y, muzzle.z],
             camera_rel: [camera.x, camera.y, camera.z],
+            chassis_observation: extracted.chassis_observation,
         };
 
         Some(Box::new(TalosSnapshotSync {
@@ -244,6 +272,7 @@ fn extract_pose_data(
     muzzle_offset: Extract<
         Query<(&GlobalTransform, &Transform), (With<InfantryLaunchOffset>, With<Controlled>)>,
     >,
+    chassis_obs: Extract<Res<ChassisObservationFrame>>,
 ) {
     pose_data.frame_seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
     pose_data.timestamp_ns = now_ns();
@@ -273,5 +302,32 @@ fn extract_pose_data(
     pose_data.gimbal_rotation = gimbal_rot;
     pose_data.muzzle_rel_translation = muzzle_rel.translation;
     pose_data.camera_rel_translation = cam_rel.translation;
+    pose_data.chassis_observation = ChassisObservation {
+        frame_seq: pose_data.frame_seq,
+        timestamp_ns: pose_data.timestamp_ns,
+        dt_s: chassis_obs.dt_s,
+        v_body: [chassis_obs.v_body.x, chassis_obs.v_body.y],
+        wz_radps: chassis_obs.wz_radps,
+        wheel_linear_mps: chassis_obs.wheel_linear_mps,
+        wheel_angular_radps: chassis_obs.wheel_angular_radps,
+        a_body: [chassis_obs.a_body.x, chassis_obs.a_body.y],
+        alpha_z_radps2: chassis_obs.alpha_z_radps2,
+        rpy_rad: [
+            chassis_obs.rpy_rad.x,
+            chassis_obs.rpy_rad.y,
+            chassis_obs.rpy_rad.z,
+        ],
+        gyro_xyz_radps: [
+            chassis_obs.gyro_xyz_radps.x,
+            chassis_obs.gyro_xyz_radps.y,
+            chassis_obs.gyro_xyz_radps.z,
+        ],
+        accel_xyz_mps2: [
+            chassis_obs.accel_xyz_mps2.x,
+            chassis_obs.accel_xyz_mps2.y,
+            chassis_obs.accel_xyz_mps2.z,
+        ],
+        _pad: [0; 16],
+    };
     pose_data.valid = true;
 }
