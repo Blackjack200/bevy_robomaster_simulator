@@ -164,7 +164,7 @@ pub fn setup(
             ..default()
         }),
         Msaa::Off,
-        Tonemapping::None,
+        Tonemapping::BlenderFilmic,
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
             follow_offset: Vec3::from_array(config.camera.follow_offset),
@@ -246,7 +246,6 @@ pub fn setup_vehicle(
         GameLayer::Default,
         GameLayer::VehicleSelf,
         GameLayer::VehicleOther,
-        GameLayer::ProjectileSelf,
         GameLayer::ProjectileOther,
         GameLayer::Environment,
     ];

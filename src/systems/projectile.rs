@@ -72,7 +72,6 @@ pub fn projectile_launch(
             [
                 GameLayer::Default,
                 GameLayer::VehicleOther,
-                GameLayer::ProjectileSelf,
                 GameLayer::ProjectileOther,
                 GameLayer::Environment,
             ],

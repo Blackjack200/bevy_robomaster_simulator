@@ -67,7 +67,8 @@ diameter = 0.017                # meters - projectile diameter (17mm)
 mass = 0.0032                    # kg - projectile mass (17g)
 friction = 1.1                  # friction coefficient
 linear_damping = 0.0            # linear damping (set to 0 for physics-based drag below)
-
+uav_vel = 5.0
+uav_size = 0.5
 [projectile.aerodynamics]
 enabled = false                  # enable aerodynamic forces
 air_density = 1.225             # kg/m^3 - air density at sea level

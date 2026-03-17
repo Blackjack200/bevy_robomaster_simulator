@@ -39,7 +39,7 @@ use crate::systems::{
     ChassisObservationFrame, GameplaySystems, PreviousKinematicState, auto_aim_switch,
     change_appearance, cleanup_projectiles, following_controls, freecam_controls, gimbal_controls,
     projectile_aerodynamics, projectile_launch, remote_gimbal_controls, remote_vehicle_controls,
-    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control,
+    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control, uav_launch,
     update_chassis_observation, update_help_text, vehicle_controls,
 };
 
@@ -225,6 +225,12 @@ fn main() {
             projectile_launch
                 .after(TransformSystems::Propagate)
                 .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
+        )
+        .add_systems(
+            PostUpdate,
+            uav_launch
+                .after(TransformSystems::Propagate)
+                .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::KeyP)),
         )
         .add_systems(FixedUpdate, projectile_aerodynamics);
 

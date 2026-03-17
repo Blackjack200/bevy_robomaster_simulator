@@ -125,6 +125,8 @@ pub struct ProjectileConfig {
     pub speed: f32,
     pub cooldown: f32,
     pub diameter: f32,
+    pub uav_size: f32,
+    pub uav_vel: f32,
     pub mass: f32,
     pub friction: f32,
     pub linear_damping: f32,
@@ -277,6 +279,8 @@ impl Default for SimulationConfig {
                     friction: 1.1,
                     linear_damping: 0.0,
                     aerodynamics: ProjectileAerodynamicsConfig::default(),
+                    uav_size: 1.0,
+                    uav_vel: 2.0,
                 },
                 camera: CameraConfig {
                     fov: 45.0,
