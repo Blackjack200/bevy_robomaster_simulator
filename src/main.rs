@@ -226,12 +226,7 @@ fn main() {
                 .after(TransformSystems::Propagate)
                 .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
         )
-        .add_systems(
-            PostUpdate,
-            uav_launch
-                .after(TransformSystems::Propagate)
-                .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::KeyP)),
-        )
+        .add_systems(PostUpdate, uav_launch.after(TransformSystems::Propagate))
         .add_systems(FixedUpdate, projectile_aerodynamics);
 
     if config.debug.diagnostics {

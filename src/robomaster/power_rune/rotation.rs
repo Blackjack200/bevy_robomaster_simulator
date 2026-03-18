@@ -2,7 +2,7 @@ use crate::robomaster::power_rune::common::RuneMode;
 use crate::robomaster::power_rune::consts::ROTATION_BASELINE_SMALL;
 use bevy::math::Dir3;
 use bevy::prelude::Transform;
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 struct VariableRotation {
     a: f32,

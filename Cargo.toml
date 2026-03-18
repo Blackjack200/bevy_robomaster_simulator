@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 bevy = { version = "0.18", features = ["dynamic_linking", "jpeg"] }
-avian3d = "0.5"
+avian3d = "0.6"
 bevy-inspector-egui = "0.36"
 memmap2 = { version = "0" }
 
@@ -34,7 +34,7 @@ exact = { path = "crates/exact" }
 toml = "1"
 notify = "8"
 serde = { version = "1", features = ["derive"] }
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 ffmpeg-next = "8.0.0"
 
 [[bin]]
