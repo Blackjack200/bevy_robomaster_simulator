@@ -19,10 +19,10 @@ pub fn setup_projectile(
     commands.insert_resource(ProjectileSetting(
         meshes.add(Sphere::new(config.projectile.diameter / 2.0)),
         materials.add(StandardMaterial {
-            base_color: Color::srgba(0.132866, 1.0, 0.132869, 0.55),
-            emissive: LinearRgba::new(0.132866, 1.0, 0.132869, 0.55),
+            base_color: Color::srgba(0.132866, 1.0, 0.132869, 0.85),
+            emissive: LinearRgba::new(0.132866, 1.0, 0.132869, 0.85),
             emissive_exposure_weight: -1.0,
-            alpha_mode: AlphaMode::Blend,
+            alpha_mode: AlphaMode::Opaque,
             ..default()
         }),
     ));

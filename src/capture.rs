@@ -42,7 +42,6 @@ pub fn setup_capture_camera(world: &mut World) {
         RenderTarget::Image(render_target_handle.into()),
         Camera {
             order: CAPTURE_CAMERA_ORDER,
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
@@ -84,7 +83,6 @@ pub fn setup_preview_window(world: &mut World) {
             Camera2d::default(),
             Camera {
                 order: 1,
-                clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
             PreviewCamera,

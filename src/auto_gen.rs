@@ -124,7 +124,6 @@ fn setup_auto_gen(mut commands: Commands, asset_server: Res<AssetServer>) {
         Camera3d::default(),
         Camera {
             is_active: true,
-            clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {

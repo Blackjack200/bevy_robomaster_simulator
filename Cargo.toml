@@ -35,7 +35,7 @@ toml = "1"
 notify = "8"
 serde = { version = "1", features = ["derive"] }
 clap = { version = "4.6", features = ["derive"] }
-ffmpeg-next = "8.0.0"
+#ffmpeg-next = "8.0.0"
 
 [[bin]]
 name = "talos_gimbal_mock_server"
