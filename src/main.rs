@@ -20,7 +20,8 @@ mod talos;
 use avian3d::prelude::*;
 use bevy::diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin};
 use bevy::prelude::*;
-use bevy::render::RenderSystems;
+use bevy::render::settings::{InstanceFlags, RenderCreation, WgpuSettings, WgpuSettingsPriority};
+use bevy::render::{RenderPlugin, RenderSystems};
 use bevy::window::PresentMode;
 use bevy_inspector_egui::bevy_egui::EguiPlugin;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -69,6 +70,30 @@ fn present_mode_from_config(value: &str) -> Option<PresentMode> {
     }
 }
 
+fn is_wsl() -> bool {
+    std::env::var_os("WSL_DISTRO_NAME").is_some()
+        || std::env::var_os("WSL_INTEROP").is_some()
+        || std::fs::read_to_string("/proc/sys/kernel/osrelease")
+            .map(|release| release.to_ascii_lowercase().contains("microsoft"))
+            .unwrap_or(false)
+}
+
+fn render_plugin_for_platform() -> RenderPlugin {
+    if cfg!(target_os = "linux") && is_wsl() {
+        return RenderPlugin {
+            render_creation: RenderCreation::Automatic(WgpuSettings {
+                instance_flags: InstanceFlags::default()
+                    | InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER,
+                priority: WgpuSettingsPriority::Compatibility,
+                ..default()
+            }),
+            ..default()
+        };
+    }
+
+    RenderPlugin::default()
+}
+
 #[cfg(feature = "talos")]
 fn should_enable_talos_plugin(app: &App) -> bool {
     #[cfg(feature = "ros2")]
@@ -102,14 +127,16 @@ fn main() {
 
         App::new()
             .add_plugins((
-                DefaultPlugins.set(WindowPlugin {
-                    primary_window: Some(Window {
-                        present_mode,
-                        fit_canvas_to_parent: true,
+                DefaultPlugins
+                    .set(WindowPlugin {
+                        primary_window: Some(Window {
+                            present_mode,
+                            fit_canvas_to_parent: true,
+                            ..default()
+                        }),
                         ..default()
-                    }),
-                    ..default()
-                }),
+                    })
+                    .set(render_plugin_for_platform()),
                 PhysicsPlugins::default(),
             ))
             .add_plugins(RoboMasterPlugins)
@@ -133,14 +160,16 @@ fn main() {
     });
     let mut app = App::new();
     app.add_plugins((
-        DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                present_mode,
-                fit_canvas_to_parent: true,
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    present_mode,
+                    fit_canvas_to_parent: true,
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }),
+            })
+            .set(render_plugin_for_platform()),
         PhysicsPlugins::default(),
     ));
 
