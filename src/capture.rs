@@ -5,7 +5,7 @@ use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::RenderTarget;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::post_process::bloom::Bloom;
+use bevy::post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter};
 use bevy::prelude::*;
 use bevy::render::view::Hdr;
 
@@ -42,6 +42,8 @@ pub fn setup_capture_camera(world: &mut World) {
         RenderTarget::Image(render_target_handle.into()),
         Camera {
             order: CAPTURE_CAMERA_ORDER,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
