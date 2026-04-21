@@ -1,9 +1,7 @@
 use avian3d::prelude::*;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
-use bevy::render::view::Hdr;
 use bevy::scene::{SceneInstance, SceneInstanceReady};
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use std::collections::HashMap;
@@ -36,6 +34,7 @@ pub fn setup(
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(0.9, 0.95, 1.0),
+            illuminance: 50.0,
             shadows_enabled: config.render.shadows,
             ..default()
         },
@@ -166,9 +165,7 @@ pub fn setup(
             ..default()
         }),
         Msaa::Off,
-        Hdr,
-        Bloom::NATURAL,
-        Tonemapping::None,
+        Tonemapping::BlenderFilmic,
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
             follow_offset: Vec3::from_array(config.camera.follow_offset),
