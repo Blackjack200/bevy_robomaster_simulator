@@ -156,6 +156,7 @@ pub fn setup(
             is_active: false,
             #[cfg(not(any(feature = "ros2", feature = "talos")))]
             is_active: config.preview.enabled,
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
