@@ -259,21 +259,14 @@ pub fn setup_vehicle(
             sim_config.vehicle.linear_acceleration,
             sim_config.vehicle.acceleration_exponent,
         ),
-        Collider::compound(vec![
-            (
-                Vec3::new(0.0, 0.115649, 0.0),
-                Quat::IDENTITY,
-                Collider::cylinder(0.1040215, 0.364237),
-            ),
-            (
-                Vec3::new(0.0, -0.115649, 0.0),
-                Quat::IDENTITY,
-                Collider::cylinder(0.2593615, 0.231298),
-            ),
-        ]),
+        Collider::compound(vec![(
+            Vec3::new(0.0, -0.115649, 0.0),
+            Quat::IDENTITY,
+            Collider::cylinder(0.2593615, 0.231298),
+        )]),
         CollisionMargin(0.005),
         vehicle_collision_layers,
-        Mass(25.0),
+        Mass(15.0),
         Restitution::new(0.01),
         AngularDamping(50.0),
     ));

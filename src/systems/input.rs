@@ -69,6 +69,11 @@ pub fn vehicle_controls(
     >,
 ) {
     let input = input!(keyboard, KeyW, KeyA, KeyS, KeyD);
+    let boost = if keyboard.pressed(KeyCode::ShiftLeft) {
+        2.0
+    } else {
+        1.0
+    };
 
     let (mut forces, &Mass(mass), mut dynamic) = infantry.into_inner();
 
@@ -79,6 +84,7 @@ pub fn vehicle_controls(
         gimbal.into_inner().0,
         input,
         time.delta_secs(),
+        boost,
     );
 
     let input = input!(keyboard, KeyQ, KeyE);
@@ -105,6 +111,11 @@ pub fn remote_vehicle_controls(
     >,
 ) {
     let input = input!(keyboard, KeyI, KeyJ, KeyK, KeyL);
+    let boost = if keyboard.pressed(KeyCode::ShiftRight) {
+        2.0
+    } else {
+        1.0
+    };
 
     let (mut forces, &Mass(mass), mut dynamic) = infantry.into_inner();
 
@@ -115,6 +126,7 @@ pub fn remote_vehicle_controls(
         gimbal.into_inner().0,
         input,
         time.delta_secs(),
+        boost,
     );
 
     let input = input!(keyboard, KeyU, KeyO);
