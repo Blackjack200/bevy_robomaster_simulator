@@ -197,10 +197,10 @@ pub fn setup_ground(
             return;
         };
         if name.as_str() == "OUTPOST_1" {
-            commands.entity(e).insert(OutpostRoot(Team::Blue));
+            commands.entity(e).insert(OutpostRoot(Team::Red));
         }
         if name.as_str() == "OUTPOST_2" {
-            commands.entity(e).insert(OutpostRoot(Team::Red));
+            commands.entity(e).insert(OutpostRoot(Team::Blue));
         }
     })
 }
