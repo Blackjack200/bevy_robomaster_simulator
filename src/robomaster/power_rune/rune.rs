@@ -47,6 +47,17 @@ impl PowerRune {
         &self.state
     }
 
+    pub fn rotation_controller(&self) -> &RotationController {
+        &self.rotation
+    }
+
+    pub fn activating_targets(&self) -> Option<&[Activation]> {
+        match &self.state {
+            MechanismState::Activating(s) => Some(s.targets()),
+            _ => None,
+        }
+    }
+
     pub(super) fn new(
         team: Team,
         mode: RuneMode,

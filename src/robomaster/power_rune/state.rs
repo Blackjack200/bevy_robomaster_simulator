@@ -37,6 +37,10 @@ impl ActivatingState {
         }
     }
 
+    pub fn targets(&self) -> &[Activation] {
+        &self.targets
+    }
+
     pub fn start(&mut self) -> Vec<RuneAction> {
         self.new_round()
     }

@@ -5,7 +5,7 @@ pub const IMAGE_HEIGHT: u32 = 1080;
 
 pub const CACHE_LINE_SIZE: usize = 64;
 pub const SHM_MAGIC: u32 = 0x54414C05;
-pub const SHM_VERSION: u32 = 1;
+pub const SHM_VERSION: u32 = 2;
 
 pub const IMAGE_CHANNELS: u32 = 3;
 pub const IMAGE_SIZE: usize = (IMAGE_WIDTH * IMAGE_HEIGHT * IMAGE_CHANNELS) as usize;
@@ -160,6 +160,103 @@ pub struct ShmHeader {
 }
 const _: () = assert!(size_of::<ShmHeader>() == 64);
 
+pub const GROUND_TRUTH_MAX_TARGETS: usize = 16;
+pub const GROUND_TRUTH_MAX_RUNES: usize = 4;
+
+#[repr(C, align(32))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GroundTruthTarget {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
+    pub team: u8,
+    pub armor_label: u8,
+    pub is_outpost: u8,
+    pub _pad1: u8,
+    pub position: [f32; 3],
+    pub vyaw: f32,
+    pub yaw: f32,
+    pub _pad: [u8; 24],
+}
+const _: () = assert!(size_of::<GroundTruthTarget>() == 64);
+
+#[repr(C, align(64))]
+#[derive(Debug, Clone, Copy)]
+pub struct GroundTruthRune {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
+    pub team: u8,
+    pub rune_mode: u8,
+    pub mechanism_state: u8,
+    pub _pad1: u8,
+    pub r_center_odom: [f32; 3],
+    pub radius: f32,
+    pub current_angle: f32,
+    pub v_roll: f32,
+    pub direction: i32,
+    pub sin_amplitude: f32,
+    pub sin_omega: f32,
+    pub sin_phase: f32,
+    pub sin_offset: f32,
+    pub relative_time: f32,
+    pub blade_id: i32,
+    pub target_activations: [u8; 5],
+    pub _pad: [u8; 20],
+}
+const _: () = assert!(size_of::<GroundTruthRune>() == 128);
+
+impl Default for GroundTruthRune {
+    fn default() -> Self {
+        Self {
+            frame_seq: 0,
+            timestamp_ns: 0,
+            team: 0,
+            rune_mode: 0,
+            mechanism_state: 0,
+            _pad1: 0,
+            r_center_odom: [0.0; 3],
+            radius: 0.0,
+            current_angle: 0.0,
+            v_roll: 0.0,
+            direction: 0,
+            sin_amplitude: 0.0,
+            sin_omega: 0.0,
+            sin_phase: 0.0,
+            sin_offset: 0.0,
+            relative_time: 0.0,
+            blade_id: -1,
+            target_activations: [0; 5],
+            _pad: [0; 20],
+        }
+    }
+}
+
+#[repr(C, align(64))]
+#[derive(Debug, Clone, Copy)]
+pub struct GroundTruthBatch {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
+    pub target_count: u32,
+    pub rune_count: u32,
+    pub targets: [GroundTruthTarget; GROUND_TRUTH_MAX_TARGETS],
+    pub runes: [GroundTruthRune; GROUND_TRUTH_MAX_RUNES],
+    pub _pad: [u8; 64],
+}
+const _: () = assert!(size_of::<GroundTruthBatch>() == 1664);
+
+impl Default for GroundTruthBatch {
+    fn default() -> Self {
+        Self {
+            frame_seq: 0,
+            timestamp_ns: 0,
+            target_count: 0,
+            rune_count: 0,
+            targets: [GroundTruthTarget::default(); GROUND_TRUTH_MAX_TARGETS],
+            runes: [GroundTruthRune::default(); GROUND_TRUTH_MAX_RUNES],
+            _pad: [0; 64],
+        }
+    }
+}
+
 #[repr(C)]
 pub struct ShmMetaRegion {
     pub header: ShmHeader,
@@ -167,15 +264,14 @@ pub struct ShmMetaRegion {
     pub poses: [PoseTripleBuffer; 5],
     pub gimbal_cmd: GimbalTripleBuffer,
     pub camera_info: CameraInfo,
-    // ABI-compatible extension:
-    // Reuse tail reserved bytes as a dedicated chassis observation payload.
-    // Existing readers that treat this area as padding remain compatible.
     pub chassis_observation: ChassisObservation,
+    pub ground_truth: GroundTruthBatch,
     pub _pad: [u8; 64],
 }
-const _: () = assert!(size_of::<ShmMetaRegion>() == 2048);
+const _: () = assert!(size_of::<ShmMetaRegion>() == 3712);
 const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, camera_info) == 1728);
 const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, chassis_observation) == 1856);
+const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, ground_truth) == 1984);
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -254,6 +350,7 @@ impl Default for ShmMetaRegion {
             gimbal_cmd: GimbalTripleBuffer::default(),
             camera_info: CameraInfo::default(),
             chassis_observation: ChassisObservation::default(),
+            ground_truth: GroundTruthBatch::default(),
             _pad: [0; 64],
         }
     }

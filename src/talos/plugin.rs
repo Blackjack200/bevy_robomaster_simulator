@@ -89,6 +89,10 @@ impl Plugin for TalosPlugin {
         app.add_systems(Last, heartbeat_system);
         app.add_systems(
             Last,
+            crate::talos::ground_truth::publish_ground_truth_system,
+        );
+        app.add_systems(
+            Last,
             process_subscription
                 .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
         );

@@ -137,6 +137,13 @@ impl ShmPublisher {
         }
     }
 
+    pub fn publish_ground_truth(&mut self, batch: &GroundTruthBatch) {
+        unsafe {
+            let meta = self.meta_region.as_mut::<ShmMetaRegion>();
+            meta.ground_truth = *batch;
+        }
+    }
+
     pub fn update_heartbeat(&mut self) {
         unsafe {
             let meta = self.meta_region.as_mut::<ShmMetaRegion>();

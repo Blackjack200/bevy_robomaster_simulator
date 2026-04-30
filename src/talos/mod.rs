@@ -4,6 +4,7 @@
 //! 纯 IPC 代码已移至 `talos-ipc` crate，此处只保留 Bevy 集成。
 
 mod capture;
+mod ground_truth;
 mod plugin;
 
 pub use plugin::TalosPlugin;

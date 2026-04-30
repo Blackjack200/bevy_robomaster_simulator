@@ -44,6 +44,14 @@ impl RotationController {
         }
     }
 
+    pub fn variable_params(&self) -> Option<(f32, f32, f32)> {
+        self.variable.as_ref().map(|v| (v.a, v.omega, v.t))
+    }
+
+    pub fn is_clockwise(&self) -> bool {
+        self.clockwise
+    }
+
     pub fn rotate(&self, transform: &mut Transform, angle: f32) {
         transform.rotate_local_axis(self.direction, angle);
     }
