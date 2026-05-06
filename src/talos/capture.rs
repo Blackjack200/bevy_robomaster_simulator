@@ -8,11 +8,11 @@ use crate::capture::{
 };
 use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
 use crate::dataset::prelude::DatasetSnapshotCreator;
-use crate::systems::ChassisObservationFrame;
+use crate::systems::{ChassisObservationFrame, GameplaySystems};
 use crate::talos::plugin::{to_ros_quat, to_ros_translation};
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::render::{Extract, ExtractSchedule, RenderApp};
+use bevy::render::{Extract, ExtractSchedule, RenderApp, RenderSystems};
 use std::f32::consts::PI;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,16 +21,22 @@ use talos_ipc::*;
 
 static FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct TalosFrameStamp {
+    pub frame_seq: u64,
+    pub timestamp_ns: u64,
+}
+
+pub fn advance_talos_frame_stamp(mut stamp: ResMut<TalosFrameStamp>) {
+    stamp.frame_seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
+    stamp.timestamp_ns = now_ns();
+}
+
 /// Extracted pose data from MainApp to RenderApp for synchronized publishing
 #[derive(Resource, Clone, Default)]
 pub struct ExtractedPoseData {
     pub frame_seq: u64,
     pub timestamp_ns: u64,
-    pub gimbal_translation: Vec3,
-    pub gimbal_rotation: Quat,
-    pub muzzle_rel_translation: Vec3,
-    pub camera_rel_translation: Vec3,
-    pub chassis_observation: ChassisObservation,
     pub valid: bool,
 }
 
@@ -54,7 +60,6 @@ fn now_ns() -> u64 {
 struct TalosSnapshotSync {
     frame_seq: u64,
     timestamp_ns: u64,
-    pose_data: Option<CapturedPoseData>,
 }
 
 impl SnapshotSync for TalosSnapshotSync {
@@ -69,7 +74,6 @@ impl SnapshotSync for TalosSnapshotSync {
             ctx,
             frame_seq: self.frame_seq,
             timestamp_ns: self.timestamp_ns,
-            pose_data: self.pose_data,
         })
     }
 }
@@ -78,7 +82,6 @@ struct TalosSnapshot {
     ctx: Arc<Mutex<ShmPublisher>>,
     frame_seq: u64,
     timestamp_ns: u64,
-    pose_data: Option<CapturedPoseData>,
 }
 
 impl SnapshotAsync for TalosSnapshot {
@@ -106,66 +109,6 @@ impl SnapshotAsync for TalosSnapshot {
         }
 
         if let Ok(mut publisher) = self.ctx.lock() {
-            // Publish poses first (with the same frame_seq)
-            if let Some(ref pose) = self.pose_data {
-                publisher.publish_pose(
-                    PoseIndex::Odom,
-                    pose.gimbal_ros,
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.frame_seq,
-                    self.timestamp_ns,
-                );
-
-                publisher.publish_pose(
-                    PoseIndex::Gimbal,
-                    [0.0, 0.0, 0.0],
-                    pose.gimbal_quat,
-                    self.frame_seq,
-                    self.timestamp_ns,
-                );
-
-                publisher.publish_pose(
-                    PoseIndex::Muzzle,
-                    pose.muzzle_rel,
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.frame_seq,
-                    self.timestamp_ns,
-                );
-
-                publisher.publish_pose(
-                    PoseIndex::Camera,
-                    pose.camera_rel,
-                    [1.0, 0.0, 0.0, 0.0],
-                    self.frame_seq,
-                    self.timestamp_ns,
-                );
-
-                let mut observation = pose.chassis_observation;
-                observation.frame_seq = self.frame_seq;
-                observation.timestamp_ns = self.timestamp_ns;
-                publisher.publish_chassis_observation(observation);
-
-                // Legacy compatibility path for consumers still reading pose slot 4.
-                publisher.publish_pose_with_aux(
-                    PoseIndex::ChassisObservation,
-                    [
-                        observation.v_body[0],
-                        observation.v_body[1],
-                        observation.wz_radps,
-                    ],
-                    observation.wheel_angular_radps,
-                    [
-                        observation.a_body[0],
-                        observation.a_body[1],
-                        observation.alpha_z_radps2,
-                        observation.dt_s,
-                    ],
-                    self.frame_seq,
-                    self.timestamp_ns,
-                );
-            }
-
-            // Then publish image (with the same frame_seq)
             publisher.publish_image(frame.data, self.frame_seq, self.timestamp_ns);
         }
     }
@@ -182,22 +125,9 @@ impl GpuCaptureHandler for TalosSnapshotCreator {
             return None;
         }
 
-        let gimbal_ros = to_ros_translation(extracted.gimbal_translation);
-        let gimbal_rot = to_ros_quat(extracted.gimbal_rotation);
-        let muzzle = to_ros_translation(extracted.muzzle_rel_translation);
-        let camera = to_ros_translation(extracted.camera_rel_translation);
-        let pose_data = CapturedPoseData {
-            gimbal_ros: [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
-            gimbal_quat: [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
-            muzzle_rel: [muzzle.x, muzzle.y, muzzle.z],
-            camera_rel: [camera.x, camera.y, camera.z],
-            chassis_observation: extracted.chassis_observation,
-        };
-
         Some(Box::new(TalosSnapshotSync {
             frame_seq: extracted.frame_seq,
             timestamp_ns: extracted.timestamp_ns,
-            pose_data: Some(pose_data),
         }))
     }
 }
@@ -214,6 +144,50 @@ pub struct TalosCaptureContext {
 pub struct TalosCapturePlugin {
     pub config: CaptureConfig,
     pub context: TalosCaptureContext,
+}
+
+pub fn publish_talos_pose_system(
+    context: Option<Res<TalosCaptureContext>>,
+    frame_stamp: Res<TalosFrameStamp>,
+    camera: Query<&GlobalTransform, With<CaptureSource>>,
+    gimbal: Query<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>,
+    muzzle_offset: Query<
+        (&GlobalTransform, &Transform),
+        (With<InfantryLaunchOffset>, With<Controlled>),
+    >,
+    chassis_obs: Res<ChassisObservationFrame>,
+) {
+    let Some(ctx) = context else {
+        return;
+    };
+    let Ok(cam_transform) = camera.single() else {
+        return;
+    };
+    let Ok(gimbal_transform) = gimbal.single() else {
+        return;
+    };
+    let Ok((muzzle_global, muzzle_local)) = muzzle_offset.single() else {
+        return;
+    };
+
+    let pose = captured_pose_data(
+        cam_transform,
+        gimbal_transform,
+        muzzle_global,
+        muzzle_local,
+        &chassis_obs,
+        frame_stamp.frame_seq,
+        frame_stamp.timestamp_ns,
+    );
+
+    if let Ok(mut publisher) = ctx.publisher.lock() {
+        publish_pose_data(
+            &mut publisher,
+            frame_stamp.frame_seq,
+            frame_stamp.timestamp_ns,
+            &pose,
+        );
+    }
 }
 
 impl Plugin for TalosCapturePlugin {
@@ -254,7 +228,12 @@ impl Plugin for TalosCapturePlugin {
             .insert_resource(self.context.clone())
             .add_systems(Startup, setup_capture_camera)
             .add_systems(Startup, setup_preview_window)
-            .add_systems(Update, sync_capture_camera);
+            .add_systems(
+                Update,
+                sync_capture_camera
+                    .after(GameplaySystems::Camera)
+                    .before(RenderSystems::Render),
+            );
 
         app.sub_app_mut(RenderApp)
             .insert_resource(TalosCaptureContextShared(self.context.publisher.clone()))
@@ -267,6 +246,7 @@ impl Plugin for TalosCapturePlugin {
 /// Extract pose data from MainApp to RenderApp
 fn extract_pose_data(
     mut pose_data: ResMut<ExtractedPoseData>,
+    frame_stamp: Extract<Res<TalosFrameStamp>>,
     camera: Extract<Query<&GlobalTransform, With<CaptureSource>>>,
     gimbal: Extract<Query<&GlobalTransform, (With<Controlled>, With<InfantryGimbal>)>>,
     muzzle_offset: Extract<
@@ -274,8 +254,8 @@ fn extract_pose_data(
     >,
     chassis_obs: Extract<Res<ChassisObservationFrame>>,
 ) {
-    pose_data.frame_seq = FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
-    pose_data.timestamp_ns = now_ns();
+    pose_data.frame_seq = frame_stamp.frame_seq;
+    pose_data.timestamp_ns = frame_stamp.timestamp_ns;
 
     let Ok(cam_transform) = camera.single() else {
         pose_data.valid = false;
@@ -290,44 +270,133 @@ fn extract_pose_data(
         return;
     };
 
+    let _pose = captured_pose_data(
+        cam_transform,
+        gimbal_transform,
+        muzzle_global,
+        muzzle_local,
+        &chassis_obs,
+        pose_data.frame_seq,
+        pose_data.timestamp_ns,
+    );
+    pose_data.valid = true;
+}
+
+fn captured_pose_data(
+    cam_transform: &GlobalTransform,
+    gimbal_transform: &GlobalTransform,
+    muzzle_global: &GlobalTransform,
+    muzzle_local: &Transform,
+    chassis_obs: &ChassisObservationFrame,
+    frame_seq: u64,
+    timestamp_ns: u64,
+) -> CapturedPoseData {
     let cam_rel = cam_transform.reparented_to(gimbal_transform);
     let muzzle_rel = muzzle_global.reparented_to(gimbal_transform);
 
-    // Compute gimbal rotation (same as in plugin.rs)
     let gimbal_rot = gimbal_transform.rotation()
         * muzzle_local.rotation
         * Quat::from_euler(EulerRot::ZYX, 0.0, 0.0, PI / 2.0);
 
-    pose_data.gimbal_translation = gimbal_transform.translation();
-    pose_data.gimbal_rotation = gimbal_rot;
-    pose_data.muzzle_rel_translation = muzzle_rel.translation;
-    pose_data.camera_rel_translation = cam_rel.translation;
-    pose_data.chassis_observation = ChassisObservation {
-        frame_seq: pose_data.frame_seq,
-        timestamp_ns: pose_data.timestamp_ns,
-        dt_s: chassis_obs.dt_s,
-        v_body: [chassis_obs.v_body.x, chassis_obs.v_body.y],
-        wz_radps: chassis_obs.wz_radps,
-        wheel_linear_mps: chassis_obs.wheel_linear_mps,
-        wheel_angular_radps: chassis_obs.wheel_angular_radps,
-        a_body: [chassis_obs.a_body.x, chassis_obs.a_body.y],
-        alpha_z_radps2: chassis_obs.alpha_z_radps2,
-        rpy_rad: [
-            chassis_obs.rpy_rad.x,
-            chassis_obs.rpy_rad.y,
-            chassis_obs.rpy_rad.z,
+    let gimbal_ros = to_ros_translation(gimbal_transform.translation());
+    let gimbal_rot = to_ros_quat(gimbal_rot);
+    let muzzle = to_ros_translation(muzzle_rel.translation);
+    let camera = to_ros_translation(cam_rel.translation);
+
+    CapturedPoseData {
+        gimbal_ros: [gimbal_ros.x, gimbal_ros.y, gimbal_ros.z],
+        gimbal_quat: [gimbal_rot.w, gimbal_rot.x, gimbal_rot.y, gimbal_rot.z],
+        muzzle_rel: [muzzle.x, muzzle.y, muzzle.z],
+        camera_rel: [camera.x, camera.y, camera.z],
+        chassis_observation: ChassisObservation {
+            frame_seq,
+            timestamp_ns,
+            dt_s: chassis_obs.dt_s,
+            v_body: [chassis_obs.v_body.x, chassis_obs.v_body.y],
+            wz_radps: chassis_obs.wz_radps,
+            wheel_linear_mps: chassis_obs.wheel_linear_mps,
+            wheel_angular_radps: chassis_obs.wheel_angular_radps,
+            a_body: [chassis_obs.a_body.x, chassis_obs.a_body.y],
+            alpha_z_radps2: chassis_obs.alpha_z_radps2,
+            rpy_rad: [
+                chassis_obs.rpy_rad.x,
+                chassis_obs.rpy_rad.y,
+                chassis_obs.rpy_rad.z,
+            ],
+            gyro_xyz_radps: [
+                chassis_obs.gyro_xyz_radps.x,
+                chassis_obs.gyro_xyz_radps.y,
+                chassis_obs.gyro_xyz_radps.z,
+            ],
+            accel_xyz_mps2: [
+                chassis_obs.accel_xyz_mps2.x,
+                chassis_obs.accel_xyz_mps2.y,
+                chassis_obs.accel_xyz_mps2.z,
+            ],
+            _pad: [0; 16],
+        },
+    }
+}
+
+fn publish_pose_data(
+    publisher: &mut ShmPublisher,
+    frame_seq: u64,
+    timestamp_ns: u64,
+    pose: &CapturedPoseData,
+) {
+    publisher.publish_pose(
+        PoseIndex::Odom,
+        pose.gimbal_ros,
+        [1.0, 0.0, 0.0, 0.0],
+        frame_seq,
+        timestamp_ns,
+    );
+
+    publisher.publish_pose(
+        PoseIndex::Gimbal,
+        [0.0, 0.0, 0.0],
+        pose.gimbal_quat,
+        frame_seq,
+        timestamp_ns,
+    );
+
+    publisher.publish_pose(
+        PoseIndex::Muzzle,
+        pose.muzzle_rel,
+        [1.0, 0.0, 0.0, 0.0],
+        frame_seq,
+        timestamp_ns,
+    );
+
+    publisher.publish_pose(
+        PoseIndex::Camera,
+        pose.camera_rel,
+        [1.0, 0.0, 0.0, 0.0],
+        frame_seq,
+        timestamp_ns,
+    );
+
+    let mut observation = pose.chassis_observation;
+    observation.frame_seq = frame_seq;
+    observation.timestamp_ns = timestamp_ns;
+    publisher.publish_chassis_observation(observation);
+
+    // Legacy compatibility path for consumers still reading pose slot 4.
+    publisher.publish_pose_with_aux(
+        PoseIndex::ChassisObservation,
+        [
+            observation.v_body[0],
+            observation.v_body[1],
+            observation.wz_radps,
         ],
-        gyro_xyz_radps: [
-            chassis_obs.gyro_xyz_radps.x,
-            chassis_obs.gyro_xyz_radps.y,
-            chassis_obs.gyro_xyz_radps.z,
+        observation.wheel_angular_radps,
+        [
+            observation.a_body[0],
+            observation.a_body[1],
+            observation.alpha_z_radps2,
+            observation.dt_s,
         ],
-        accel_xyz_mps2: [
-            chassis_obs.accel_xyz_mps2.x,
-            chassis_obs.accel_xyz_mps2.y,
-            chassis_obs.accel_xyz_mps2.z,
-        ],
-        _pad: [0; 16],
-    };
-    pose_data.valid = true;
+        frame_seq,
+        timestamp_ns,
+    );
 }

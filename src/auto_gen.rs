@@ -73,7 +73,10 @@ impl Plugin for AutoGenPlugin {
             .insert_resource(CameraFov(FOV))
             .insert_resource(capture_config)
             .add_systems(Startup, (setup_auto_gen, setup_capture_camera))
-            .add_systems(Update, (auto_gen_loop, sync_capture_camera));
+            .add_systems(
+                Update,
+                (auto_gen_loop, sync_capture_camera.after(auto_gen_loop)),
+            );
 
         // Add capture system to RenderApp's ExtractSchedule
         app.sub_app_mut(RenderApp)

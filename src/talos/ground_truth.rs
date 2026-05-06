@@ -1,23 +1,10 @@
-use crate::components::{Controlled, Infantry, InfantryGimbal};
-use crate::robomaster::prelude::{
-    Activation, ArmorLabel, MechanismState, PowerRune, RotationController, RuneMode, Team,
-};
-use crate::talos::capture::TalosCaptureContext;
+use crate::components::{Controlled, Infantry};
+use crate::robomaster::prelude::{Activation, MechanismState, PowerRune, RuneMode, Team};
+use crate::talos::capture::{TalosCaptureContext, TalosFrameStamp};
 use crate::talos::plugin::M_ALIGN_MAT3;
-use avian3d::prelude::{AngularVelocity, LinearVelocity};
+use avian3d::prelude::AngularVelocity;
 use bevy::prelude::*;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use talos_ipc::*;
-
-static GT_FRAME_SEQ: AtomicU64 = AtomicU64::new(0);
-
-fn now_ns() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
 
 fn to_ros_vec3(v: Vec3) -> Vec3 {
     M_ALIGN_MAT3 * v
@@ -68,6 +55,7 @@ fn ros_yaw(global_tf: &GlobalTransform) -> f32 {
 
 pub fn publish_ground_truth_system(
     context: Option<Res<TalosCaptureContext>>,
+    frame_stamp: Res<TalosFrameStamp>,
     infantry_query: Query<
         (&GlobalTransform, Option<&AngularVelocity>, &Infantry),
         Without<Controlled>,
@@ -82,8 +70,8 @@ pub fn publish_ground_truth_system(
         return;
     };
 
-    let frame_seq = GT_FRAME_SEQ.fetch_add(1, Ordering::Relaxed);
-    let timestamp_ns = now_ns();
+    let frame_seq = frame_stamp.frame_seq;
+    let timestamp_ns = frame_stamp.timestamp_ns;
 
     let mut batch = GroundTruthBatch::default();
     batch.frame_seq = frame_seq;

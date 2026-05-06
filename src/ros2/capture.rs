@@ -11,9 +11,10 @@ use crate::capture::{
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::ros2::image::compress_image;
 use crate::ros2::topic::{CameraInfoTopic, ImageCompressedTopic, ImageRawTopic, TopicPublisher};
+use crate::systems::GameplaySystems;
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
-use bevy::render::RenderApp;
+use bevy::render::{RenderApp, RenderSystems};
 use r2r::Clock;
 use r2r::sensor_msgs::msg::{CameraInfo, RegionOfInterest};
 use r2r::std_msgs::msg::Header;
@@ -124,7 +125,12 @@ impl Plugin for RosCapturePlugin {
             .insert_resource(self.context.clone())
             .add_systems(Startup, setup_capture_camera)
             .add_systems(Startup, setup_preview_window)
-            .add_systems(Update, sync_capture_camera);
+            .add_systems(
+                Update,
+                sync_capture_camera
+                    .after(GameplaySystems::Camera)
+                    .before(RenderSystems::Render),
+            );
         app.sub_app_mut(RenderApp)
             .insert_resource(RosCaptureContextShared(Arc::new(self.context.clone())))
             .insert_resource(self.context.clone());

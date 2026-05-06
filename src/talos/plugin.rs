@@ -5,7 +5,10 @@ use crate::components::{
 };
 use crate::config::SimulationConfig;
 use crate::systems::projectile_launch;
-use crate::talos::capture::{TalosCaptureContext, TalosCapturePlugin};
+use crate::talos::capture::{
+    TalosCaptureContext, TalosCapturePlugin, TalosFrameStamp, advance_talos_frame_stamp,
+    publish_talos_pose_system,
+};
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
@@ -70,6 +73,8 @@ impl Plugin for TalosPlugin {
             fov_y: self.config.fov_y,
         };
 
+        app.init_resource::<TalosFrameStamp>();
+
         app.add_plugins(TalosCapturePlugin {
             config: capture_config,
             context: capture_context,
@@ -86,10 +91,15 @@ impl Plugin for TalosPlugin {
         }
 
         app.insert_resource(TalosEnabled(AtomicBool::new(true)));
-        app.add_systems(Last, heartbeat_system);
+        app.add_systems(Last, (advance_talos_frame_stamp, heartbeat_system));
         app.add_systems(
             Last,
-            crate::talos::ground_truth::publish_ground_truth_system,
+            publish_talos_pose_system.after(advance_talos_frame_stamp),
+        );
+        app.add_systems(
+            Last,
+            crate::talos::ground_truth::publish_ground_truth_system
+                .after(publish_talos_pose_system),
         );
         app.add_systems(
             Last,
