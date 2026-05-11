@@ -1,4 +1,4 @@
-use crate::robomaster::outpost::rotation::RotationController;
+use crate::robomaster::outpost::rotation::{RotationController, RotationDirection};
 use crate::robomaster::prelude::Team;
 use bevy::app::Update;
 use bevy::prelude::{Component, Query, Res, Time, Transform};
@@ -39,9 +39,9 @@ pub struct OutpostRotator {
 }
 
 impl OutpostRotator {
-    pub(crate) fn new(clockwise: bool) -> Self {
+    pub(crate) fn new(direction: RotationDirection) -> Self {
         Self {
-            rotation: RotationController::new(clockwise),
+            rotation: RotationController::new(direction),
         }
     }
 }

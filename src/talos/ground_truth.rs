@@ -82,7 +82,8 @@ pub fn publish_ground_truth_system(
 
     for (global_tf, ang_vel, infantry) in all_robots {
         let pos_ros = to_ros_vec3(global_tf.translation());
-        let (team, config) = (&infantry.0, &infantry.1);
+        let team = &infantry.team;
+        let config = infantry.config;
 
         let vyaw = ang_vel
             .map(|av| {
@@ -99,7 +100,7 @@ pub fn publish_ground_truth_system(
                 frame_seq,
                 timestamp_ns,
                 team: team_to_u8(team),
-                armor_label: config.1 as u8,
+                armor_label: config.armor.label() as u8,
                 is_outpost: 0,
                 _pad1: 0,
                 position: [pos_ros.x, pos_ros.y, pos_ros.z],

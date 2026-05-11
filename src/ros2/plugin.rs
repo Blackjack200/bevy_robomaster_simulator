@@ -211,7 +211,9 @@ fn capture_rune(
                 }
             }
             for (entity, _transform, armor) in armor {
-                let name = format!("armor_{:?}", armor.id).to_string().to_lowercase();
+                let name = format!("armor_{:?}", armor.id.as_usize())
+                    .to_string()
+                    .to_lowercase();
                 let tf = center.get(qq.of(entity).suffix("CENTER").any().one().unwrap()).unwrap().1.compute_transform();
                 pub name as (tf.translation, tf.rotation);
             }
@@ -234,7 +236,7 @@ fn capture_rune(
             }
             .clone(),
             ns: "armors".to_string(),
-            id: armor.id as i32,
+            id: armor.id.as_usize() as i32,
             type_: Marker::CUBE as i32,
             action: Marker::ADD as i32,
             pose: Pose {

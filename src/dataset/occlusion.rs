@@ -57,7 +57,7 @@ impl<'w, 's> Occlusion<'w, 's> {
                         let Ok(parent) = self.vertex.get(parent) else {
                             return false;
                         };
-                        parent.0 != *side
+                        parent.side != *side
                     });
                     if is_vertex {
                         return false;
@@ -78,7 +78,7 @@ impl<'w, 's> Occlusion<'w, 's> {
                             let is_other_side = self.child_of.iter_ancestors(e).any(|parent| {
                                 self.light_strip
                                     .get(parent)
-                                    .map(|ls| ls.0 != *side)
+                                    .map(|ls| ls.side != *side)
                                     .unwrap_or(false)
                             });
                             return is_other_side;
@@ -97,7 +97,7 @@ impl<'w, 's> Occlusion<'w, 's> {
                 let Ok(ancestor) = self.light_strip.get(ancestor) else {
                     continue 'g;
                 };
-                if ancestor.0 != *side {
+                if ancestor.side != *side {
                     //untolerated
                     return OcclusionType::Untolerated;
                 }

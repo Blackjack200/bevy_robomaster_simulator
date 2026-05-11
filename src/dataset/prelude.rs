@@ -5,7 +5,7 @@ use crate::capture::driver::{
 use crate::dataset::occlusion::Occlusion;
 use crate::dataset::writer::{ArmorColor, ArmorEntry, DatasetWriter};
 use crate::robomaster::prelude::{
-    Armor, ArmorLabel, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
+    Armor, ArmorLabel, ArmorParts, ArmorRoot, ArmorType, MarkerData, Side, Team, VertexData,
 };
 use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
@@ -175,7 +175,7 @@ impl SnapshotAsync for DatasetSnapshot {
 }
 
 pub(crate) fn capture(
-    root_data: Extract<Query<(Entity, &Armor, &ArmorRoot)>>,
+    root_data: Extract<Query<(Entity, &Armor, &ArmorRoot, &ArmorParts)>>,
     vertex_data: Extract<Query<(&GlobalTransform, &VertexData)>>,
     marker_data: Extract<Query<(&GlobalTransform, &MarkerData)>>,
     camera: Extract<Single<(&Projection, &GlobalTransform), With<CaptureCamera>>>,
@@ -187,7 +187,7 @@ pub(crate) fn capture(
     let (projection, camera_global_transform) = **camera;
     let camera_pos = camera_global_transform.translation();
 
-    for (vertex_entity, armor, root) in root_data.iter() {
+    for (vertex_entity, armor, _root, parts) in root_data.iter() {
         let all_in_frustum = |global_transform: &GlobalTransform,
                               unmapped: &[Vec3]|
          -> Option<Vec<(Vec3, (u32, u32))>> {
@@ -199,16 +199,16 @@ pub(crate) fn capture(
             }
             Some(mapped)
         };
-        let marker = root.marker();
-        let vertices = [root.vertex(Side::Left), root.vertex(Side::Right)];
+        let marker = parts.marker();
+        let vertices = [parts.vertex(Side::Left), parts.vertex(Side::Right)];
         let mut vert = Vec::with_capacity(vertices.len());
         for vertex in vertices {
-            let (tf, VertexData(side, vertices)) = vertex_data.get(vertex).unwrap();
-            let Some(vertices) = all_in_frustum(tf, vertices.as_slice()) else {
+            let (tf, vertex_data) = vertex_data.get(vertex).unwrap();
+            let Some(vertices) = all_in_frustum(tf, vertex_data.points.as_slice()) else {
                 continue;
             };
             vert.push((
-                side,
+                &vertex_data.side,
                 vertex,
                 vertices.into_iter().map(|v| v.0).collect::<Vec<_>>(),
             ));
@@ -233,7 +233,7 @@ pub(crate) fn capture(
             continue;
         }
         armor_screen.entry(armor.team).or_insert(default()).push((
-            armor.armor_type,
+            armor.spec.armor_type(),
             armor.label,
             match armor.team {
                 Team::Red => ArmorColor::Red,

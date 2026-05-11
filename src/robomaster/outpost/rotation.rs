@@ -1,16 +1,31 @@
 use crate::robomaster::outpost::consts::ROTATION_SPEED;
 use bevy::prelude::Transform;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum RotationDirection {
+    Clockwise,
+    CounterClockwise,
+}
+
+impl RotationDirection {
+    pub const fn sign(self) -> f32 {
+        match self {
+            Self::Clockwise => 1.0,
+            Self::CounterClockwise => -1.0,
+        }
+    }
+}
+
 pub struct RotationController {
     speed: f32,
-    clockwise: bool,
+    direction: RotationDirection,
 }
 
 impl RotationController {
-    pub fn new(clockwise: bool) -> Self {
+    pub fn new(direction: RotationDirection) -> Self {
         Self {
             speed: ROTATION_SPEED,
-            clockwise,
+            direction,
         }
     }
 
@@ -19,7 +34,17 @@ impl RotationController {
     }
 
     pub fn step(&self, transform: &mut Transform, dt: f32) {
-        let sgn = if self.clockwise { 1.0 } else { -1.0 };
-        self.rotate(transform, sgn * self.speed * dt);
+        self.rotate(transform, self.direction.sign() * self.speed * dt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rotation_direction_sign_matches_legacy_bool() {
+        assert_eq!(RotationDirection::Clockwise.sign(), 1.0);
+        assert_eq!(RotationDirection::CounterClockwise.sign(), -1.0);
     }
 }

@@ -3,7 +3,7 @@ use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
 use bevy::window::{CursorIcon, SystemCursorIcon, Window};
 
 use crate::components::{SlapperInfantry, SubscribeAutoAim};
-use crate::robomaster::prelude::{Armor, ArmorLabel, ArmorRoot};
+use crate::robomaster::prelude::{Armor, ArmorStickerSelection};
 use crate::statistic::ProjectileStatistics;
 
 fn create_help_text(auto_aim: bool, stats: &ProjectileStatistics) -> Text {
@@ -40,20 +40,15 @@ pub fn update_help_text(
 }
 
 pub fn change_appearance(
-    mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
-    armor: Query<&mut ArmorRoot, With<SlapperInfantry>>,
+    selections: Query<&mut ArmorStickerSelection, With<SlapperInfantry>>,
     owned: Query<&mut Armor, With<SlapperInfantry>>,
 ) {
     if keyboard.pressed(KeyCode::ShiftLeft) && keyboard.just_pressed(KeyCode::KeyC) {
         let mut n_type = None;
-        for mut armor in armor {
-            let seq = ArmorLabel::sequence_small();
-            armor.counter += 1;
-            armor.counter %= seq.len();
-            let new_typ = seq[armor.counter];
+        for mut selection in selections {
+            let new_typ = selection.advance_debug_sequence();
             n_type = Some(new_typ);
-            armor.set_sticker(new_typ, &mut commands);
         }
         if let Some(n_type) = n_type {
             for mut own in owned {

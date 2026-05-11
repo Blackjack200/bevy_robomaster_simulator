@@ -6,7 +6,16 @@ use crate::robomaster::prelude::{RobotConfig, Team};
 pub struct Controlled;
 
 #[derive(Component)]
-pub struct Infantry(pub Team, pub RobotConfig);
+pub struct Infantry {
+    pub team: Team,
+    pub config: RobotConfig,
+}
+
+impl Infantry {
+    pub const fn new(team: Team, config: RobotConfig) -> Self {
+        Self { team, config }
+    }
+}
 
 #[derive(Component, Default)]
 pub struct InfantryChassis {

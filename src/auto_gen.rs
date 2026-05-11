@@ -117,8 +117,8 @@ fn setup_auto_gen(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         SceneRoot(asset_server.load("HERO.glb#Scene0")),
         Transform::from_xyz(0.0, 1.0, 0.0),
-        Infantry(Team::Blue, HERO_ROBOT_CONFIG),
-        ScanArmor(Team::Blue, HERO_ROBOT_CONFIG.0, HERO_ROBOT_CONFIG.1),
+        Infantry::new(Team::Blue, HERO_ROBOT_CONFIG),
+        ScanArmor::new(Team::Blue, HERO_ROBOT_CONFIG.armor),
         AutoGenTarget,
     ));
 

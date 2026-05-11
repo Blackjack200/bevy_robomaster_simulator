@@ -1,5 +1,5 @@
 use crate::query;
-use crate::robomaster::prelude::{ArmorLabel, ArmorType, MarkerData, Team, extract_markers};
+use crate::robomaster::prelude::{ArmorLabel, ArmorSpec, MarkerData, Team, extract_markers};
 use crate::util::entity_query::HierarchyQuery;
 use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
 use bevy::app::App;
@@ -7,36 +7,84 @@ use bevy::ecs::system::SystemParam;
 use bevy::ecs::system::lifetimeless::Read;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::{
-    Added, Assets, ChildOf, Children, Commands, Component, Deref, DerefMut, Entity, Mesh, Mesh3d,
-    Name, Plugin, Query, Res, Update, Vec3, Visibility, With, info,
+    Added, Assets, Changed, ChildOf, Children, Commands, Component, Entity, Mesh, Mesh3d, Name,
+    Plugin, Query, Res, Update, Vec3, Visibility, With, info,
 };
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Component, Debug)]
-pub struct ScanArmor(pub Team, pub ArmorType, pub ArmorLabel);
+pub struct ScanArmor {
+    pub team: Team,
+    pub spec: ArmorSpec,
+}
+
+impl ScanArmor {
+    pub const fn new(team: Team, spec: ArmorSpec) -> Self {
+        Self { team, spec }
+    }
+}
 
 #[derive(Component, Clone, Debug)]
-pub struct VertexData(pub Side, pub Vec<Vec3>);
+pub struct VertexData {
+    pub side: Side,
+    pub points: Vec<Vec3>,
+}
 
 #[derive(Component, Clone, Debug)]
-pub struct LightStrip(pub Side);
+pub struct LightStrip {
+    pub side: Side,
+}
 
 #[derive(Component, Clone, Debug)]
 pub struct Armor {
     pub name: String,
     pub team: Team,
-    pub armor_type: ArmorType,
+    pub spec: ArmorSpec,
     pub label: ArmorLabel,
 }
 
-#[derive(Component, Clone, Deref, DerefMut)]
-pub struct ArmorSticker(HashMap<ArmorLabel, Entity>);
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ArmorSticker {
+    pub root: Entity,
+    pub label: ArmorLabel,
+}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Component, Clone, Debug)]
+pub struct ArmorStickerSelection {
+    pub label: ArmorLabel,
+    pub sequence_index: usize,
+}
+
+impl ArmorStickerSelection {
+    pub fn new(label: ArmorLabel) -> Self {
+        Self {
+            label,
+            sequence_index: ArmorLabel::index_from_small(label),
+        }
+    }
+
+    pub fn advance_debug_sequence(&mut self) -> ArmorLabel {
+        let sequence = ArmorLabel::sequence_small();
+        self.sequence_index += 1;
+        self.sequence_index %= sequence.len();
+        self.label = sequence[self.sequence_index];
+        self.label
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Side {
     Left,
     Right,
+}
+
+impl Side {
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+        }
+    }
 }
 
 #[derive(SystemParam)]
@@ -51,10 +99,21 @@ pub struct ArmorConstructor<'w, 's> {
 
 #[derive(Component, Clone)]
 pub struct ArmorRoot {
-    pub id: usize,
+    pub id: ArmorId,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct ArmorId(usize);
+
+impl ArmorId {
+    pub const fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
+#[derive(Component, Clone)]
+pub struct ArmorParts {
     marker: Entity,
-    sticker: ArmorSticker,
-    pub counter: usize,
     lights: [Entity; 2],
     vertices: [Entity; 2],
 }
@@ -64,15 +123,12 @@ macro_rules! impl_side {
         #[inline]
         #[must_use]
         pub fn $method_name(&self, side: Side) -> Entity {
-            self.$field[match side {
-                Side::Left => 0usize,
-                Side::Right => 1usize,
-            }]
+            self.$field[side.index()]
         }
     };
 }
 
-impl ArmorRoot {
+impl ArmorParts {
     impl_side!(light, lights);
     impl_side!(vertex, vertices);
 
@@ -80,15 +136,6 @@ impl ArmorRoot {
     #[must_use]
     pub fn marker(&self) -> Entity {
         self.marker
-    }
-
-    pub fn set_sticker(&self, label: ArmorLabel, commands: &mut Commands) {
-        for (k, entity) in self.sticker.iter() {
-            commands.entity(*entity).insert(match *k == label {
-                true => Visibility::Visible,
-                false => Visibility::Hidden,
-            });
-        }
     }
 }
 
@@ -109,9 +156,9 @@ impl ArmorConstructor<'_, '_> {
 
         info!(
             "Armor {:?}_{:?}_{:?}@'{}': Added marker with {} points",
-            armor_data.0,
-            armor_data.1,
-            armor_data.2,
+            armor_data.team,
+            armor_data.spec.armor_type(),
+            armor_data.spec.label(),
             name,
             vertices.len()
         );
@@ -134,9 +181,9 @@ impl ArmorConstructor<'_, '_> {
 
         info!(
             "Armor {:?}_{:?}_{:?}@'{}': Extracted {} vertices",
-            armor_data.0,
-            armor_data.1,
-            armor_data.2,
+            armor_data.team,
+            armor_data.spec.armor_type(),
+            armor_data.spec.label(),
             name,
             vertices.len()
         );
@@ -169,9 +216,9 @@ impl ArmorConstructor<'_, '_> {
                 .for_each(|(elem_name, armor_elem)| {
                     self.commands.entity(armor_elem).insert(Armor {
                         name: elem_name.to_string(),
-                        team: armor_data.0,
-                        armor_type: armor_data.1,
-                        label: armor_data.2,
+                        team: armor_data.team,
+                        spec: armor_data.spec,
+                        label: armor_data.spec.label(),
                     });
                 });
         }
@@ -183,7 +230,7 @@ impl ArmorConstructor<'_, '_> {
                 query!(root_query, .."L_R_RED")?,
             ],
         ];
-        let (lights, hide) = match armor_data.0 {
+        let (lights, hide) = match armor_data.team {
             Team::Red => (lights[1], lights[0]),
             Team::Blue => (lights[0], lights[1]),
         };
@@ -193,10 +240,10 @@ impl ArmorConstructor<'_, '_> {
 
         self.commands
             .entity(lights[0])
-            .insert(LightStrip(Side::Left));
+            .insert(LightStrip { side: Side::Left });
         self.commands
             .entity(lights[1])
-            .insert(LightStrip(Side::Right));
+            .insert(LightStrip { side: Side::Right });
 
         let marker = query!(root_query, .."MARKER", ...)?;
         self.process_marker(marker, &armor_name, armor_data)?;
@@ -209,55 +256,57 @@ impl ArmorConstructor<'_, '_> {
             let v = self
                 .extract_vertex(vertex, &armor_name, armor_data)
                 .unwrap();
-            self.commands
-                .entity(vertex)
-                .insert((VertexData(side.clone(), v.clone()), Visibility::Hidden));
+            self.commands.entity(vertex).insert((
+                VertexData {
+                    side,
+                    points: v.clone(),
+                },
+                Visibility::Hidden,
+            ));
             vertex
         });
-        let sticker = ArmorSticker({
+        {
             let c_query = query!(root_query, .."_C", ref).flatten();
             c_query.clone().any().into_iter().for_each(|e| {
                 self.commands.entity(e).insert(Visibility::Hidden);
             });
-            match armor_data.1 {
-                ArmorType::Small => HashMap::from([
-                    (ArmorLabel::BaseSmall, query!(c_query, .."B")?),
-                    (ArmorLabel::EngineerG, query!(c_query, .."G")?),
-                    (ArmorLabel::OutpostZeo, query!(c_query, .."O")?),
-                    (ArmorLabel::InfantryTwo, query!(c_query, .."2")?),
-                    (ArmorLabel::InfantryOrHeroThree, query!(c_query, .."3")?),
-                    (ArmorLabel::InfantryOrHeroFour, query!(c_query, .."4")?),
-                    (ArmorLabel::HeroLegacyFive, query!(c_query, .."5")?),
-                ]),
-                ArmorType::Large => HashMap::from([
-                    (ArmorLabel::HeroOne, query!(c_query, .."1")?),
-                    (ArmorLabel::InfantryOrHeroThree, query!(c_query, .."3")?),
-                    (ArmorLabel::InfantryOrHeroFour, query!(c_query, .."4")?),
-                    (ArmorLabel::HeroLegacyFive, query!(c_query, .."5")?),
-                    (ArmorLabel::BaseLarge, query!(c_query, .."B")?),
-                ]),
+            for slot in armor_data.spec.sticker_slots() {
+                let sticker = c_query.clone().suffix(slot.name_suffix).one()?;
+                self.commands.entity(sticker).insert((
+                    ArmorSticker {
+                        root,
+                        label: slot.label,
+                    },
+                    match slot.label == armor_data.spec.label() {
+                        true => Visibility::Visible,
+                        false => Visibility::Hidden,
+                    },
+                ));
             }
-        });
+        }
 
         self.commands.entity(root).insert(Armor {
             name: armor_name.clone(),
-            team: armor_data.0,
-            armor_type: armor_data.1,
-            label: armor_data.2,
+            team: armor_data.team,
+            spec: armor_data.spec,
+            label: armor_data.spec.label(),
         });
 
         static ID: AtomicUsize = AtomicUsize::new(0);
 
         let ar = ArmorRoot {
-            id: ID.fetch_add(1, Ordering::SeqCst),
+            id: ArmorId(ID.fetch_add(1, Ordering::SeqCst)),
+        };
+        let parts = ArmorParts {
             marker,
-            sticker,
-            counter: ArmorLabel::index_from_small(armor_data.2),
             lights,
             vertices,
         };
-        ar.set_sticker(armor_data.2, &mut self.commands);
-        self.commands.entity(root).insert(ar.clone());
+        self.commands.entity(root).insert((
+            ar.clone(),
+            parts,
+            ArmorStickerSelection::new(armor_data.spec.label()),
+        ));
         Some(ar)
     }
 }
@@ -296,11 +345,31 @@ fn insert(
     }
 }
 
+fn sync_armor_stickers(
+    mut commands: Commands,
+    selections: Query<(Entity, &ArmorStickerSelection), Changed<ArmorStickerSelection>>,
+    stickers: Query<(Entity, &ArmorSticker)>,
+) {
+    for (root, selection) in &selections {
+        for (entity, sticker) in &stickers {
+            if sticker.root != root {
+                continue;
+            }
+            commands
+                .entity(entity)
+                .insert(match sticker.label == selection.label {
+                    true => Visibility::Visible,
+                    false => Visibility::Hidden,
+                });
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct ArmorConstructorPlugin;
 
 impl Plugin for ArmorConstructorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, insert);
+        app.add_systems(Update, (insert, sync_armor_stickers));
     }
 }

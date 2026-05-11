@@ -143,21 +143,21 @@ pub fn setup(
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(0.0, 1.0, 0.0),
-        Infantry(Team::Red, INFANTRY_THREE_CONFIG),
+        Infantry::new(Team::Red, INFANTRY_THREE_CONFIG),
         Controlled,
     ));
 
     commands.spawn((
         SceneRoot(asset_server.load("vehicle.glb#Scene0")),
         Transform::from_xyz(1.0, 1.0, 1.0),
-        Infantry(Team::Blue, INFANTRY_THREE_CONFIG),
+        Infantry::new(Team::Blue, INFANTRY_THREE_CONFIG),
         SlapperInfantry,
     ));
 
     commands.spawn((
         SceneRoot(asset_server.load("HERO.glb#Scene0")),
         Transform::from_xyz(2.0, 1.0, 1.0),
-        Infantry(Team::Blue, HERO_ROBOT_CONFIG),
+        Infantry::new(Team::Blue, HERO_ROBOT_CONFIG),
         SlapperInfantry,
         ActiveSlapper,
     ));
@@ -213,10 +213,10 @@ pub fn setup_ground(
             return;
         };
         if name.as_str() == "OUTPOST_1" {
-            commands.entity(e).insert(OutpostRoot(Team::Red));
+            commands.entity(e).insert(OutpostRoot::new(Team::Red));
         }
         if name.as_str() == "OUTPOST_2" {
-            commands.entity(e).insert(OutpostRoot(Team::Blue));
+            commands.entity(e).insert(OutpostRoot::new(Team::Blue));
         }
     })
 }
@@ -239,7 +239,9 @@ pub fn setup_vehicle(
     if root_query.get(root).is_err() {
         return;
     }
-    let (root, &Infantry(team, config), is_local, is_active) = root_query.get(root).unwrap();
+    let (root, infantry, is_local, is_active) = root_query.get(root).unwrap();
+    let team = infantry.team;
+    let config = infantry.config;
     let is_local = is_local.is_some();
     let is_active = is_active.is_some();
     if is_local {
@@ -295,7 +297,7 @@ pub fn setup_vehicle(
     let base = iter.clone().exact("BASE").one().unwrap();
     commands.entity(base).insert((
         InfantryChassis::default(),
-        ScanArmor(team, config.0, config.1),
+        ScanArmor::new(team, config.armor),
     ));
     let gimbal = iter.exact("GIMBAL").one().unwrap();
     commands.entity(gimbal).insert(InfantryGimbal::default());

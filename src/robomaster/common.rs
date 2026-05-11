@@ -16,19 +16,33 @@ impl Team {
     }
 }
 
-pub type RobotConfig = (ArmorType, ArmorLabel, usize);
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RobotConfig {
+    pub armor: ArmorSpec,
+    pub armor_count: usize,
+}
 
-pub const HERO_ROBOT_CONFIG: RobotConfig = (ArmorType::Large, ArmorLabel::HeroOne, 4);
-pub const ENGINEER_ROBOT_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::EngineerG, 4);
+impl RobotConfig {
+    pub const fn new(armor: ArmorSpec, armor_count: usize) -> Self {
+        Self { armor, armor_count }
+    }
+}
+
+pub const HERO_ROBOT_CONFIG: RobotConfig =
+    RobotConfig::new(ArmorSpec::Large(LargeArmorLabel::HeroOne), 4);
+pub const ENGINEER_ROBOT_CONFIG: RobotConfig =
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::EngineerG), 4);
 pub const INFANTRY_THREE_CONFIG: RobotConfig =
-    (ArmorType::Small, ArmorLabel::InfantryOrHeroThree, 4);
-pub const INFANTRY_FOUR_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryOrHeroFour, 4);
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::InfantryOrHeroThree), 4);
+pub const INFANTRY_FOUR_CONFIG: RobotConfig =
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::InfantryOrHeroFour), 4);
 
-pub const SENTINEL_ROBOT_TWO_CONFIG: RobotConfig = (ArmorType::Small, ArmorLabel::InfantryTwo, 4);
+pub const SENTINEL_ROBOT_TWO_CONFIG: RobotConfig =
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::InfantryTwo), 4);
 pub const SENTINEL_ROBOT_THREE_CONFIG: RobotConfig =
-    (ArmorType::Small, ArmorLabel::InfantryOrHeroThree, 4);
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::InfantryOrHeroThree), 4);
 pub const SENTINEL_ROBOT_FOUR_CONFIG: RobotConfig =
-    (ArmorType::Small, ArmorLabel::InfantryOrHeroFour, 4);
+    RobotConfig::new(ArmorSpec::Small(SmallArmorLabel::InfantryOrHeroFour), 4);
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Robot {
@@ -66,4 +80,58 @@ pub enum Robot {
     /// - 编号: 9号机
     /// - 特点: 激光照射,坐标标记,信息波解析
     Radar,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn robot_configs_preserve_legacy_armor_values() {
+        let cases = [
+            (HERO_ROBOT_CONFIG, ArmorType::Large, ArmorLabel::HeroOne, 4),
+            (
+                ENGINEER_ROBOT_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::EngineerG,
+                4,
+            ),
+            (
+                INFANTRY_THREE_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::InfantryOrHeroThree,
+                4,
+            ),
+            (
+                INFANTRY_FOUR_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::InfantryOrHeroFour,
+                4,
+            ),
+            (
+                SENTINEL_ROBOT_TWO_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::InfantryTwo,
+                4,
+            ),
+            (
+                SENTINEL_ROBOT_THREE_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::InfantryOrHeroThree,
+                4,
+            ),
+            (
+                SENTINEL_ROBOT_FOUR_CONFIG,
+                ArmorType::Small,
+                ArmorLabel::InfantryOrHeroFour,
+                4,
+            ),
+        ];
+
+        for (config, armor_type, label, armor_count) in cases {
+            assert_eq!(config.armor.armor_type(), armor_type);
+            assert_eq!(config.armor.label(), label);
+            assert_eq!(config.armor_count, armor_count);
+        }
+    }
 }
