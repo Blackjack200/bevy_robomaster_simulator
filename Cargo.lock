@@ -2784,6 +2784,7 @@ dependencies = [
  "r2r",
  "rand 0.10.0",
  "serde",
+ "serde_json",
  "talos-ipc",
  "toml",
 ]

@@ -5,7 +5,7 @@ use crate::components::{
     Controlled, InfantryChassis, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim,
 };
 use crate::config::SimulationConfig;
-use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex};
+use crate::robomaster::prelude::{ArmorRoot, PowerRune, RuneIndex, TechCore, tech_core_state_json};
 use crate::ros2::capture::{RosCaptureContext, RosCapturePlugin};
 use crate::ros2::livox::{RosLivoxContext, RosLivoxPlugin};
 use crate::ros2::prelude::AverageRateLimiter;
@@ -18,7 +18,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use r2r::ClockType::SystemTime;
 use r2r::geometry_msgs::msg::{Point, Pose, Vector3};
-use r2r::std_msgs::msg::ColorRGBA;
+use r2r::std_msgs::msg::{ColorRGBA, String as RosString};
 use r2r::visualization_msgs::msg::Marker;
 use r2r::{Clock, Context, Node, std_msgs::msg::Header, tf2_msgs::msg::TFMessage};
 use std::collections::HashMap;
@@ -49,6 +49,9 @@ pub struct RoboMasterClock(pub Arc<Mutex<Clock>>);
 
 #[derive(Resource, Deref, DerefMut)]
 struct FireRateLimiter(AverageRateLimiter);
+
+#[derive(Resource, Deref, DerefMut)]
+struct TechCoreStateRateLimiter(AverageRateLimiter);
 
 macro_rules! tf_tree {
     (stamp: $stamp:expr;$root:literal { $($content:tt)* }) => {{
@@ -320,6 +323,29 @@ fn process_subscription(
     }
 }
 
+fn publish_tech_core_state(
+    time: Res<Time>,
+    clock: Res<RoboMasterClock>,
+    mut limiter: ResMut<TechCoreStateRateLimiter>,
+    cores: Query<&TechCore>,
+    state_pub: Res<TopicPublisher<TechCoreStateTopic>>,
+) {
+    limiter.tick(time.delta());
+    if !limiter.allow() {
+        return;
+    }
+
+    let stamp = Clock::to_builtin_time(&res_unwrap!(clock).get_now().unwrap());
+    state_pub.publish(RosString {
+        data: tech_core_state_json(
+            stamp.sec,
+            stamp.nanosec,
+            time.elapsed_secs_f64(),
+            cores.iter(),
+        ),
+    });
+}
+
 fn cleanup_ros2_system(
     mut exit: MessageReader<AppExit>,
     stop_signal: Res<StopSignal>,
@@ -391,6 +417,7 @@ impl Plugin for ROS2Plugin {
         app.insert_resource(RoboMasterClock(clock.clone()))
             .insert_resource(StopSignal(signal_arc.clone()))
             .insert_resource(FireRateLimiter(AverageRateLimiter::from_hz(10.0)))
+            .insert_resource(TechCoreStateRateLimiter(AverageRateLimiter::from_hz(20.0)))
             .add_plugins(RosCapturePlugin {
                 config: color_capture_config,
                 context: RosCaptureContext {
@@ -409,6 +436,7 @@ impl Plugin for ROS2Plugin {
                     .run_if(|enabled: Res<SubscribeAutoAim>| enabled.load(Ordering::Acquire)),
             )
             .add_systems(Update, capture_rune.after(TransformSystems::Propagate))
+            .add_systems(Update, publish_tech_core_state)
             .insert_resource(SpinThreadHandle(Some(thread::spawn(move || {
                 while !signal_arc.load(Ordering::Acquire) {
                     node.spin_once(Duration::from_millis(1));
