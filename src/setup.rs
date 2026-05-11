@@ -13,6 +13,7 @@ use crate::components::{
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{
     HERO_ROBOT_CONFIG, INFANTRY_THREE_CONFIG, OutpostRoot, PowerRuneRoot, ScanArmor, Team,
+    TechCoreRoot,
 };
 use crate::robomaster::vehicle::movement::VehicleDynamic;
 use crate::systems::spawn_text;
@@ -93,6 +94,21 @@ pub fn setup(
         SceneRoot(asset_server.load("OUTPOST.glb#Scene0")),
         Transform::IDENTITY,
         ScanOutpost,
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("TECH_CORE.glb#Scene0")),
+        Transform::IDENTITY,
+        TechCoreRoot,
+        PreciousCollision(HashMap::from([(
+            "GROUND".to_string(),
+            (
+                trimesh(),
+                layer_env,
+                Visibility::Visible,
+                Some(RigidBody::Static),
+            ),
+        )])),
     ));
 
     let mut power_rune_col = HashMap::from([(

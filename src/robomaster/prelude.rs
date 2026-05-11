@@ -1,13 +1,15 @@
-use crate::robomaster::{armor, outpost, power_rune};
+use crate::robomaster::{armor, outpost, power_rune, tech_core};
 use bevy::app::App;
 use bevy::prelude::Plugin;
 
 pub use crate::robomaster::common::*;
 use crate::robomaster::outpost::prelude::OutpostPlugins;
+use crate::robomaster::tech_core::prelude::TechCorePlugins;
 use crate::robomaster::visibility::StatefulAppearancePlugin;
 pub use armor::prelude::*;
 pub use outpost::prelude::*;
 pub use power_rune::prelude::*;
+pub use tech_core::prelude::*;
 
 #[derive(Default)]
 pub struct RoboMasterPlugins;
@@ -16,7 +18,8 @@ impl Plugin for RoboMasterPlugins {
         app.add_plugins(StatefulAppearancePlugin)
             .add_plugins(ArmorPlugins)
             .add_plugins(PowerRunePlugins)
-            .add_plugins(OutpostPlugins);
+            .add_plugins(OutpostPlugins)
+            .add_plugins(TechCorePlugins);
     }
 }
 
