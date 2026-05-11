@@ -37,7 +37,6 @@ pub fn setup_capture_camera(world: &mut World) {
 
     world.spawn((
         Camera3d::default(),
-        Bloom::NATURAL,
         Tonemapping::None,
         RenderTarget::Image(render_target_handle.into()),
         Camera {
@@ -48,12 +47,10 @@ pub fn setup_capture_camera(world: &mut World) {
         Projection::Perspective(PerspectiveProjection {
             fov,
             near: 0.1,
-            far: 500000000.0,
+            far: 10000.0,
             ..default()
         }),
         Msaa::Off,
-        Fxaa::default(),
-        Hdr,
         DepthPrepass,
         CaptureCamera,
     ));

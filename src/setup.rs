@@ -180,8 +180,8 @@ pub fn setup(
             far: 500000000.0,
             ..default()
         }),
+        Tonemapping::None,
         Msaa::Off,
-        Tonemapping::BlenderFilmic,
         Transform::from_xyz(0.0, 10.0, 15.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         MainCamera {
             follow_offset: Vec3::from_array(config.camera.follow_offset),
