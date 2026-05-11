@@ -8,7 +8,7 @@ pub use crate::robomaster::power_rune::common::*;
 pub use crate::robomaster::power_rune::construct::*;
 pub use crate::robomaster::power_rune::rotation::*;
 pub use crate::robomaster::power_rune::rune::*;
-pub use crate::robomaster::power_rune::state::MechanismState;
+pub use crate::robomaster::power_rune::state::*;
 pub use crate::robomaster::visibility::Activation;
 
 plugin_group! {

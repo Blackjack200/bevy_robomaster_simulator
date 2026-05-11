@@ -1,19 +1,19 @@
 use crate::robomaster::power_rune::collision::RuneIndex;
-use crate::robomaster::power_rune::common::RuneMode;
-use crate::robomaster::power_rune::rune::PowerRune;
-use crate::robomaster::power_rune::visual::RuneVisual;
+use crate::robomaster::power_rune::common::{RUNE_TARGET_COUNT, RuneMode};
+use crate::robomaster::power_rune::rotation::PowerRuneRotation;
+use crate::robomaster::power_rune::rune::{PowerRune, PowerRuneMechanism};
+use crate::robomaster::power_rune::visual::{PowerRuneVisuals, RuneVisual};
 use crate::robomaster::prelude::Team;
-use crate::robomaster::visibility::{Activation, Controller, StatefulAppearanceCreator};
+use crate::robomaster::visibility::{Controller, StatefulAppearanceCreator};
 use crate::util::bevy::{drain_entities_by, insert_all_child};
 use crate::{material, visibility};
 use avian3d::prelude::CollisionEventsEnabled;
-use bevy::asset::Assets;
 use bevy::ecs::system::SystemParam;
-use bevy::gizmos::GizmoAsset;
 use bevy::prelude::{
-    Children, Commands, Component, Entity, Name, On, Query, Res, ResMut, SceneSpawner, With,
+    Children, Commands, Component, Entity, Name, On, Query, Res, SceneSpawner, With,
 };
 use bevy::scene::SceneInstanceReady;
+use rand::RngExt;
 use std::collections::HashMap;
 
 #[derive(Component)]
@@ -25,7 +25,7 @@ fn build_targets(
     name_map: &mut HashMap<&str, Entity>,
     param: &mut PowerRuneParam,
     creator: &mut StatefulAppearanceCreator,
-) -> Vec<RuneVisual> {
+) -> Option<[RuneVisual; RUNE_TARGET_COUNT]> {
     let mut targets = Vec::new();
     for target_idx in 1..=5 {
         let prefix = format!("FACE_{}_TARGET_{}", face_index, target_idx);
@@ -58,29 +58,17 @@ fn build_targets(
         let completed = name_map.remove(completed);
 
         let logical_index = targets.len();
-        /*
-        let mut gizmo = GizmoAsset::new();
-        gizmo
-            .sphere(Isometry3d::IDENTITY, 0.15, CRIMSON)
-            .resolution(30_000 / 3);
-        let handle = param.gizmo_assets.add(gizmo);
-        */
         for entity in [deactivated, activating, activated, completed]
             .into_iter()
             .flatten()
         {
             insert_all_child(&mut param.commands, entity, &param.children, || {
                 (
-                    RuneIndex(logical_index, face_entity),
+                    RuneIndex {
+                        target: logical_index,
+                        rune: face_entity,
+                    },
                     CollisionEventsEnabled,
-                    /*Gizmo {
-                        handle: handle.clone(),
-                        line_config: GizmoLineConfig {
-                            width: 2.,
-                            ..default()
-                        },
-                        ..default()
-                    },*/
                 )
             });
         }
@@ -107,15 +95,13 @@ fn build_targets(
             progress_segments,
         ));
     }
-    targets
+    targets.try_into().ok()
 }
 
 #[derive(SystemParam)]
 struct PowerRuneParam<'w, 's> {
     commands: Commands<'w, 's>,
     scene_spawner: Res<'w, SceneSpawner>,
-
-    _gizmo_assets: ResMut<'w, Assets<GizmoAsset>>,
 
     power_query: Query<'w, 's, (), With<PowerRuneRoot>>,
     names: Query<'w, 's, &'static Name>,
@@ -162,6 +148,8 @@ fn setup_power_rune(
         return;
     }
 
+    let red_clockwise = rand::rng().random_bool(0.5);
+
     for (index, face_entity) in faces {
         let mode = if index & 2 > 0 {
             RuneMode::Large
@@ -172,26 +160,33 @@ fn setup_power_rune(
         let deactivated = name_map.remove(format!("FACE_{}_R_UNPOWERED", index).as_str());
         let activated = name_map.remove(format!("FACE_{}_R_POWERED", index).as_str());
 
-        let mut targets =
-            build_targets(index, face_entity, &mut name_map, &mut param, &mut creator);
-        for target in &mut targets {
-            target.apply(mode, Activation::Deactivated, &mut creator.appearance);
-        }
-
-        if targets.is_empty() {
+        let Some(targets) =
+            build_targets(index, face_entity, &mut name_map, &mut param, &mut creator)
+        else {
             continue;
-        }
+        };
 
-        param.commands.entity(face_entity).insert(PowerRune::new(
-            if (index & 1) > 0 {
-                Team::Red
-            } else {
-                Team::Blue
-            },
-            mode,
+        let team = if (index & 1) > 0 {
+            Team::Red
+        } else {
+            Team::Blue
+        };
+        let clockwise = match team {
+            Team::Red => red_clockwise,
+            Team::Blue => !red_clockwise,
+        };
+        let mut visuals = PowerRuneVisuals::new(
             Controller::new_visibility(deactivated, activated, activated, activated),
             targets,
-            (index & 1) > 0,
+        );
+        let mechanism = PowerRuneMechanism::new();
+        visuals.apply(mode, mechanism.state(), &mut creator.appearance);
+
+        param.commands.entity(face_entity).insert((
+            PowerRune::new(team, mode),
+            mechanism,
+            PowerRuneRotation::new(clockwise),
+            visuals,
         ));
     }
 }

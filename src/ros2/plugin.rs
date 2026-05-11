@@ -122,7 +122,7 @@ fn capture_rune(
         (With<InfantryLaunchOffset>, With<Controlled>),
     >,
 
-    runes: Query<(&GlobalTransform, &PowerRune)>,
+    runes: Query<(Entity, &GlobalTransform, &PowerRune)>,
     targets: Query<(&GlobalTransform, &RuneIndex, &Name)>,
 
     clock: ResMut<RoboMasterClock>,
@@ -153,17 +153,17 @@ fn capture_rune(
         cam_rel.translation.x, cam_rel.translation.y, cam_rel.translation.z
     );
     let mut targets = targets.into_iter().fold(
-        HashMap::<&PowerRune, Vec<(String, Transform)>>::new(),
+        HashMap::<Entity, Vec<(String, Transform)>>::new(),
         |mut map, (tf, target, name)| {
             // only use one target
             if !name.contains("_ACTIVATED") {
                 return map;
             }
-            let Ok((rune_tf, rune)) = runes.get(target.1) else {
+            let Ok((rune_entity, rune_tf, rune)) = runes.get(target.rune) else {
                 return map;
             };
-            map.entry(rune).or_default().push((
-                format!("power_rune_{:?}_{:?}", rune.mode(), target.0)
+            map.entry(rune_entity).or_default().push((
+                format!("power_rune_{:?}_{:?}", rune.mode(), target.target)
                     .to_string()
                     .to_lowercase(),
                 tf.reparented_to(rune_tf),
@@ -201,11 +201,11 @@ fn capture_rune(
                     }
                 }
             }
-            for (transform, rune) in runes {
+            for (rune_entity, transform, rune) in runes {
                 let name = format!("power_rune_{:?}", rune.mode()).to_string().to_lowercase();
                 let tf = transform.compute_transform();
                 pub name as (tf.translation, tf.rotation);
-                let targets = targets.remove(rune).unwrap();
+                let targets = targets.remove(&rune_entity).unwrap_or_default();
                 for (name, tf) in targets {
                     pub name as (tf.translation, tf.rotation);
                 }

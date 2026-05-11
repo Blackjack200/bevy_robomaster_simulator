@@ -1,7 +1,7 @@
 use crate::robomaster::power_rune::common::RuneMode;
 use crate::robomaster::power_rune::consts::ROTATION_BASELINE_SMALL;
 use bevy::math::Dir3;
-use bevy::prelude::Transform;
+use bevy::prelude::{Component, Transform};
 use rand::{Rng, RngExt};
 
 struct VariableRotation {
@@ -58,14 +58,21 @@ impl RotationController {
 
     pub fn set_variable(&mut self, rng: &mut impl Rng) {
         self.variable = Some(VariableRotation::random(rng));
-        // 确保重置时间参数
-        if let Some(ref mut variable) = self.variable {
-            variable.t = 0.0;
-        }
     }
 
     pub fn clear_variable(&mut self) {
         self.variable = None;
+    }
+
+    pub fn begin_activation(&mut self, mode: RuneMode, rng: &mut impl Rng) {
+        self.clear_variable();
+        if mode == RuneMode::Large {
+            self.set_variable(rng);
+        }
+    }
+
+    pub fn end_activation(&mut self) {
+        self.clear_variable();
     }
 
     pub fn current_speed(&mut self, mode: RuneMode, dt: f32) -> f32 {
@@ -79,5 +86,79 @@ impl RotationController {
             return sgn * variable.speed();
         }
         sgn * self.baseline
+    }
+}
+
+#[derive(Component)]
+pub struct PowerRuneRotation {
+    controller: RotationController,
+}
+
+impl PowerRuneRotation {
+    pub fn new(clockwise: bool) -> Self {
+        Self {
+            controller: RotationController::new(clockwise),
+        }
+    }
+
+    pub fn controller(&self) -> &RotationController {
+        &self.controller
+    }
+
+    pub fn begin_activation(&mut self, mode: RuneMode, rng: &mut impl Rng) {
+        self.controller.begin_activation(mode, rng);
+    }
+
+    pub fn end_activation(&mut self) {
+        self.controller.end_activation();
+    }
+
+    pub fn rotate(&mut self, mode: RuneMode, transform: &mut Transform, dt: f32) {
+        let speed = self.controller.current_speed(mode, dt);
+        self.controller.rotate(transform, speed * dt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn small_rune_rotation_is_baseline_speed() {
+        let mut controller = RotationController::new(true);
+
+        assert_eq!(
+            controller.current_speed(RuneMode::Small, 0.25),
+            ROTATION_BASELINE_SMALL
+        );
+        assert!(controller.variable_params().is_none());
+    }
+
+    #[test]
+    fn large_rune_activation_uses_fresh_sine_params() {
+        let mut rng = rand::rng();
+        let mut controller = RotationController::new(true);
+
+        controller.begin_activation(RuneMode::Large, &mut rng);
+        let (a, omega, t) = controller.variable_params().unwrap();
+        assert!((0.780..=1.045).contains(&a));
+        assert!((1.884..=2.0).contains(&omega));
+        assert_eq!(t, 0.0);
+
+        controller.current_speed(RuneMode::Large, 0.5);
+        assert_eq!(controller.variable_params().unwrap().2, 0.5);
+
+        controller.end_activation();
+        assert!(controller.variable_params().is_none());
+    }
+
+    #[test]
+    fn counter_clockwise_rotation_negates_speed() {
+        let mut controller = RotationController::new(false);
+
+        assert_eq!(
+            controller.current_speed(RuneMode::Small, 0.25),
+            -ROTATION_BASELINE_SMALL
+        );
     }
 }

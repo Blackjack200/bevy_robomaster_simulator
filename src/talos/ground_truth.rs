@@ -1,5 +1,7 @@
 use crate::components::{Controlled, Infantry};
-use crate::robomaster::prelude::{Activation, MechanismState, PowerRune, RuneMode, Team};
+use crate::robomaster::prelude::{
+    Activation, MechanismState, PowerRune, PowerRuneMechanism, PowerRuneRotation, RuneMode, Team,
+};
 use crate::talos::capture::{TalosCaptureContext, TalosFrameStamp};
 use crate::talos::plugin::M_ALIGN_MAT3;
 use avian3d::prelude::AngularVelocity;
@@ -64,7 +66,13 @@ pub fn publish_ground_truth_system(
         (&GlobalTransform, Option<&AngularVelocity>, &Infantry),
         With<Controlled>,
     >,
-    rune_query: Query<(&GlobalTransform, &Transform, &PowerRune)>,
+    rune_query: Query<(
+        &GlobalTransform,
+        &Transform,
+        &PowerRune,
+        &PowerRuneMechanism,
+        &PowerRuneRotation,
+    )>,
 ) {
     let Some(ctx) = context else {
         return;
@@ -113,7 +121,7 @@ pub fn publish_ground_truth_system(
     }
 
     // Collect rune ground truth
-    for (global_tf, local_tf, power_rune) in rune_query.iter() {
+    for (global_tf, local_tf, power_rune, mechanism, rotation) in rune_query.iter() {
         if (batch.rune_count as usize) >= GROUND_TRUTH_MAX_RUNES {
             break;
         }
@@ -127,7 +135,7 @@ pub fn publish_ground_truth_system(
         let (axis, angle) = local_tf.rotation.to_axis_angle();
         let current_angle = angle * axis.dot(*rune_axis).signum();
 
-        let controller = power_rune.rotation_controller();
+        let controller = rotation.controller();
         let direction = if controller.is_clockwise() { 1 } else { -1 };
 
         let (sin_amplitude, sin_omega, relative_time, sin_offset) = controller
@@ -136,11 +144,9 @@ pub fn publish_ground_truth_system(
             .unwrap_or((0.0, 0.0, 0.0, 0.0));
 
         let mut target_activations = [0u8; 5];
-        if let Some(activations) = power_rune.activating_targets() {
-            for (i, a) in activations.iter().enumerate() {
-                if i < 5 {
-                    target_activations[i] = activation_to_u8(a);
-                }
+        for (i, a) in mechanism.state().target_states().iter().enumerate() {
+            if i < 5 {
+                target_activations[i] = activation_to_u8(a);
             }
         }
 
@@ -150,7 +156,7 @@ pub fn publish_ground_truth_system(
             timestamp_ns,
             team: team_to_u8(&power_rune.team()),
             rune_mode: rune_mode_to_u8(&power_rune.mode()),
-            mechanism_state: mechanism_state_to_u8(power_rune.state()),
+            mechanism_state: mechanism_state_to_u8(mechanism.state()),
             _pad1: 0,
             r_center_odom: [pos_ros.x, pos_ros.y, pos_ros.z],
             radius: 0.0,

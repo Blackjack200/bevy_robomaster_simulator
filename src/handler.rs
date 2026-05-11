@@ -34,7 +34,7 @@ pub fn on_hit(
     let Ok((_transform, _rune)) = query.get(ev.rune) else {
         return;
     };
-    if ev.result.accurate {
+    if ev.result.accurate() {
         stats.increase_accurate();
         //commands.spawn(AudioPlayer::new(asset_server.load("rune_activated.ogg")));
     }

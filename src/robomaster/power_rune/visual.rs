@@ -1,6 +1,8 @@
 use crate::all_arg_constructor;
-use crate::robomaster::power_rune::common::RuneMode;
+use crate::robomaster::power_rune::common::{RUNE_TARGET_COUNT, RuneMode};
+use crate::robomaster::power_rune::state::MechanismState;
 use crate::robomaster::visibility::{Activation, Control, Controller, StatefulAppearance};
+use bevy::prelude::Component;
 
 all_arg_constructor!(
     pub struct RuneVisual {
@@ -46,5 +48,29 @@ impl RuneVisual {
 
         self.padding_segments.set(activation, appearance);
         self.progress_segments.set(activation, appearance);
+    }
+}
+
+#[derive(Component)]
+pub struct PowerRuneVisuals {
+    root: Controller,
+    targets: [RuneVisual; RUNE_TARGET_COUNT],
+}
+
+impl PowerRuneVisuals {
+    pub fn new(root: Controller, targets: [RuneVisual; RUNE_TARGET_COUNT]) -> Self {
+        Self { root, targets }
+    }
+
+    pub fn apply(
+        &mut self,
+        mode: RuneMode,
+        state: &MechanismState,
+        appearance: &mut StatefulAppearance,
+    ) {
+        self.root.set(state.root_activation(), appearance);
+        for (target, activation) in self.targets.iter_mut().zip(state.target_states()) {
+            target.apply(mode, activation, appearance);
+        }
     }
 }
