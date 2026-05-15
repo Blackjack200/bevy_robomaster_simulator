@@ -21,7 +21,7 @@ enabled = true
 shadows = true
 # Main on-screen camera anti-aliasing.
 main_camera_fxaa = true
-
+illuminance = 500.0
 [capture.color]
 # RGB capture resolution for existing camera pipeline.
 width = 1440
@@ -61,7 +61,7 @@ half_trackwidth_m = 0.15        # half of left-right wheel spacing (m)
 
 [projectile]
 lifetime = 5.0                  # seconds - projectile lifetime
-speed = 25.0                    # m/s - initial speed
+speed = 11.0                    # m/s - initial speed
 cooldown = 0.05                  # seconds - fire cooldown
 diameter = 0.017                # meters - projectile diameter (17mm)
 mass = 0.0032                    # kg - projectile mass (17g)

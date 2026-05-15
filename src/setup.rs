@@ -35,7 +35,7 @@ pub fn setup(
     commands.spawn((
         DirectionalLight {
             color: Color::srgb(0.9, 0.95, 1.0),
-            illuminance: 50.0,
+            illuminance: config.render.illuminance,
             shadows_enabled: config.render.shadows,
             ..default()
         },

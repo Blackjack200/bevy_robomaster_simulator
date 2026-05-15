@@ -73,6 +73,7 @@ impl Default for PreviewConfig {
 #[derive(Deserialize, Reflect, Clone)]
 #[serde(default)]
 pub struct RenderConfig {
+    pub illuminance: f32,
     pub shadows: bool,
     pub main_camera_fxaa: bool,
 }
@@ -80,6 +81,7 @@ pub struct RenderConfig {
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
+            illuminance: 50.0,
             shadows: false,
             main_camera_fxaa: false,
         }
