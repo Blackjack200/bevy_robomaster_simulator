@@ -17,7 +17,10 @@ pub enum RuneHitOutcome {
 
 impl RuneHitOutcome {
     pub const fn is_accurate(self) -> bool {
-        !matches!(self, Self::WrongTarget)
+        matches!(
+            self,
+            Self::PrimaryHit | Self::SecondaryHit | Self::Activated
+        )
     }
 
     pub const fn activates_rune(self) -> bool {

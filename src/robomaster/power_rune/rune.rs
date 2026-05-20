@@ -1,4 +1,4 @@
-use crate::robomaster::power_rune::common::{RuneMode, RuneTransition};
+use crate::robomaster::power_rune::common::RuneMode;
 use crate::robomaster::power_rune::rotation::PowerRuneRotation;
 use crate::robomaster::power_rune::state::MechanismState;
 use crate::robomaster::power_rune::visual::PowerRuneVisuals;
@@ -33,9 +33,9 @@ impl PowerRune {
 }
 
 impl PowerRuneMechanism {
-    pub fn new() -> Self {
+    pub fn new(mode: RuneMode) -> Self {
         Self {
-            state: MechanismState::inactive(),
+            state: MechanismState::inactive(mode),
         }
     }
 
@@ -50,35 +50,24 @@ impl PowerRuneMechanism {
 
 impl Default for PowerRuneMechanism {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-fn sync_rotation_after_transition(
-    transition: RuneTransition,
-    mode: RuneMode,
-    rotation: &mut PowerRuneRotation,
-    rng: &mut impl rand::Rng,
-) {
-    match transition {
-        RuneTransition::Started => rotation.begin_activation(mode, rng),
-        RuneTransition::Failed | RuneTransition::Activated | RuneTransition::ResetToInactive => {
-            rotation.end_activation()
-        }
-        RuneTransition::None | RuneTransition::Advanced => {}
+        Self::new(RuneMode::Small)
     }
 }
 
 fn rune_activation_tick(
     time: Res<Time>,
-    mut runes: Query<(&PowerRune, &mut PowerRuneMechanism, &mut PowerRuneRotation)>,
+    mut runes: Query<(&mut PowerRuneMechanism, &mut PowerRuneRotation)>,
 ) {
     let delta_secs = time.delta_secs();
     let mut rng = rand::rng();
 
-    for (rune, mut mechanism, mut rotation) in &mut runes {
-        let transition = mechanism.state.tick(rune.mode, delta_secs, &mut rng);
-        sync_rotation_after_transition(transition, rune.mode, &mut rotation, &mut rng);
+    for (mut mechanism, mut rotation) in &mut runes {
+        mechanism.state.tick(delta_secs, &mut rng);
+        rotation.sync_activation(
+            mechanism.state.mode(),
+            mechanism.state.is_activating(),
+            &mut rng,
+        );
     }
 }
 

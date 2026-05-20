@@ -75,6 +75,14 @@ impl RotationController {
         self.clear_variable();
     }
 
+    pub fn sync_activation(&mut self, mode: RuneMode, activating: bool, rng: &mut impl Rng) {
+        match (mode, activating, self.variable.is_some()) {
+            (RuneMode::Large, true, false) => self.set_variable(rng),
+            (RuneMode::Large, true, true) => {}
+            _ => self.clear_variable(),
+        }
+    }
+
     pub fn current_speed(&mut self, mode: RuneMode, dt: f32) -> f32 {
         let sgn = if self.clockwise { 1.0 } else { -1.0 };
         if mode == RuneMode::Small {
@@ -82,8 +90,9 @@ impl RotationController {
         }
         // 大机关只有在激活状态下使用变量旋转
         if let Some(variable) = &mut self.variable {
+            let speed = variable.speed();
             variable.advance(dt);
-            return sgn * variable.speed();
+            return sgn * speed;
         }
         sgn * self.baseline
     }
@@ -111,6 +120,10 @@ impl PowerRuneRotation {
 
     pub fn end_activation(&mut self) {
         self.controller.end_activation();
+    }
+
+    pub fn sync_activation(&mut self, mode: RuneMode, activating: bool, rng: &mut impl Rng) {
+        self.controller.sync_activation(mode, activating, rng);
     }
 
     pub fn rotate(&mut self, mode: RuneMode, transform: &mut Transform, dt: f32) {
@@ -145,8 +158,15 @@ mod tests {
         assert!((1.884..=2.0).contains(&omega));
         assert_eq!(t, 0.0);
 
-        controller.current_speed(RuneMode::Large, 0.5);
+        let expected_initial_speed = 2.090 - a;
+        assert_eq!(
+            controller.current_speed(RuneMode::Large, 0.5),
+            expected_initial_speed
+        );
         assert_eq!(controller.variable_params().unwrap().2, 0.5);
+
+        controller.current_speed(RuneMode::Large, 0.5);
+        assert_eq!(controller.variable_params().unwrap().2, 1.0);
 
         controller.end_activation();
         assert!(controller.variable_params().is_none());
@@ -160,5 +180,20 @@ mod tests {
             controller.current_speed(RuneMode::Small, 0.25),
             -ROTATION_BASELINE_SMALL
         );
+    }
+
+    #[test]
+    fn large_rune_sync_preserves_active_variable_rotation() {
+        let mut rng = rand::rng();
+        let mut controller = RotationController::new(true);
+
+        controller.sync_activation(RuneMode::Large, true, &mut rng);
+        let first_params = controller.variable_params().unwrap();
+
+        controller.sync_activation(RuneMode::Large, true, &mut rng);
+        assert_eq!(controller.variable_params().unwrap(), first_params);
+
+        controller.sync_activation(RuneMode::Large, false, &mut rng);
+        assert!(controller.variable_params().is_none());
     }
 }

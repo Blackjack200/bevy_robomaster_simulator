@@ -179,7 +179,7 @@ fn setup_power_rune(
             Controller::new_visibility(deactivated, activated, activated, activated),
             targets,
         );
-        let mechanism = PowerRuneMechanism::new();
+        let mechanism = PowerRuneMechanism::new(mode);
         visuals.apply(mode, mechanism.state(), &mut creator.appearance);
 
         param.commands.entity(face_entity).insert((
