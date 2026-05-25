@@ -6,7 +6,7 @@ use crate::capture::{
     },
     setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
-use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset};
+use crate::components::{Controlled, InfantryGimbal, InfantryLaunchOffset, SubscribeAutoAim};
 use crate::dataset::prelude::DatasetSnapshotCreator;
 use crate::systems::{ChassisObservationFrame, GameplaySystems};
 use crate::talos::plugin::{to_ros_quat, to_ros_translation};
@@ -156,6 +156,7 @@ pub fn publish_talos_pose_system(
         (With<InfantryLaunchOffset>, With<Controlled>),
     >,
     chassis_obs: Res<ChassisObservationFrame>,
+    following: Res<SubscribeAutoAim>,
 ) {
     let Some(ctx) = context else {
         return;
@@ -187,6 +188,11 @@ pub fn publish_talos_pose_system(
             frame_stamp.timestamp_ns,
             &pose,
         );
+        publisher.publish_runtime_state(RuntimeState {
+            timestamp_ns: frame_stamp.timestamp_ns,
+            following: u8::from(following.load(Ordering::Acquire)),
+            _pad: [0; 55],
+        });
     }
 }
 

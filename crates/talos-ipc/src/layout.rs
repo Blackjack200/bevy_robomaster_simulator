@@ -257,6 +257,25 @@ impl Default for GroundTruthBatch {
     }
 }
 
+#[repr(C, align(64))]
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeState {
+    pub timestamp_ns: u64,
+    pub following: u8,
+    pub _pad: [u8; 55],
+}
+const _: () = assert!(size_of::<RuntimeState>() == 64);
+
+impl Default for RuntimeState {
+    fn default() -> Self {
+        Self {
+            timestamp_ns: 0,
+            following: 0,
+            _pad: [0; 55],
+        }
+    }
+}
+
 #[repr(C)]
 pub struct ShmMetaRegion {
     pub header: ShmHeader,
@@ -266,12 +285,13 @@ pub struct ShmMetaRegion {
     pub camera_info: CameraInfo,
     pub chassis_observation: ChassisObservation,
     pub ground_truth: GroundTruthBatch,
-    pub _pad: [u8; 64],
+    pub runtime_state: RuntimeState,
 }
 const _: () = assert!(size_of::<ShmMetaRegion>() == 3712);
 const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, camera_info) == 1728);
 const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, chassis_observation) == 1856);
 const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, ground_truth) == 1984);
+const _: () = assert!(std::mem::offset_of!(ShmMetaRegion, runtime_state) == 3648);
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,7 +371,7 @@ impl Default for ShmMetaRegion {
             camera_info: CameraInfo::default(),
             chassis_observation: ChassisObservation::default(),
             ground_truth: GroundTruthBatch::default(),
-            _pad: [0; 64],
+            runtime_state: RuntimeState::default(),
         }
     }
 }

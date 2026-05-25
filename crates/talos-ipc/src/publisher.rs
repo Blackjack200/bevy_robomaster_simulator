@@ -144,6 +144,13 @@ impl ShmPublisher {
         }
     }
 
+    pub fn publish_runtime_state(&mut self, state: RuntimeState) {
+        unsafe {
+            let meta = self.meta_region.as_mut::<ShmMetaRegion>();
+            meta.runtime_state = state;
+        }
+    }
+
     pub fn update_heartbeat(&mut self) {
         unsafe {
             let meta = self.meta_region.as_mut::<ShmMetaRegion>();
