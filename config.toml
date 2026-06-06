@@ -47,12 +47,12 @@ intensity_default = 100.0
 substep_count = 20              # physics substeps per frame
 
 [vehicle]
-rotation_speed = 6.42            # rad/s - chassis rotation speed
+rotation_speed = 7.42            # rad/s - chassis rotation speed
 gimbal_rotation_speed = 3.0     # rad/s - gimbal rotation speed
 gimbal_pitch_limit = 0.785      # rad - gimbal pitch limit (~45 degrees)
-max_speed = 4.0                 # m/s - maximum vehicle speed
+max_speed = 6.0                 # m/s - maximum vehicle speed
 linear_acceleration = 6.0       # m/s^2 - linear acceleration
-acceleration_exponent = 1.0    # exponent for non-linear acceleration curve
+acceleration_exponent = 1.5    # exponent for non-linear acceleration curve
 
 [mecanum]
 wheel_radius_m = 0.076          # wheel radius (m)
@@ -61,7 +61,7 @@ half_trackwidth_m = 0.15        # half of left-right wheel spacing (m)
 
 [projectile]
 lifetime = 5.0                  # seconds - projectile lifetime
-speed = 11.0                    # m/s - initial speed
+speed = 25.0                    # m/s - initial speed
 cooldown = 0.05                  # seconds - fire cooldown
 diameter = 0.017                # meters - projectile diameter (17mm)
 mass = 0.0032                    # kg - projectile mass (17g)

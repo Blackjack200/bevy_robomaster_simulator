@@ -38,6 +38,30 @@ macro_rules! input {
     }};
 }
 
+const CHASSIS_ROTATION_RESPONSE: f32 = 90.0;
+const CHASSIS_ROTATION_STOP_EPSILON: f32 = 1e-3;
+
+fn update_chassis_rotation(
+    chassis_transform: &mut Transform,
+    chassis_data: &mut InfantryChassis,
+    input: f32,
+    rotation_speed: f32,
+    dt: f32,
+) {
+    let target_yaw_velocity = input * rotation_speed;
+    let response = 1.0 - (-CHASSIS_ROTATION_RESPONSE * dt).exp();
+    chassis_data.yaw_velocity += (target_yaw_velocity - chassis_data.yaw_velocity) * response;
+
+    if chassis_data.yaw_velocity.abs() < CHASSIS_ROTATION_STOP_EPSILON
+        && target_yaw_velocity.abs() < CHASSIS_ROTATION_STOP_EPSILON
+    {
+        chassis_data.yaw_velocity = 0.0;
+    }
+
+    chassis_data.yaw += chassis_data.yaw_velocity * dt;
+    chassis_transform.rotation = Quat::from_euler(EulerRot::YXZ, chassis_data.yaw, 0.0, 0.0);
+}
+
 pub fn auto_aim_switch(keyboard: Res<ButtonInput<KeyCode>>, enabled: Res<SubscribeAutoAim>) {
     if keyboard.just_pressed(KeyCode::F5) {
         info!("Toggling auto-aim subscription.");
@@ -89,8 +113,13 @@ pub fn vehicle_controls(
 
     let input = input!(keyboard, KeyQ, KeyE);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
-    chassis_data.yaw += input * config.vehicle.rotation_speed * dt;
-    chassis_transform.rotation = Quat::from_euler(EulerRot::YXZ, chassis_data.yaw, 0.0, 0.0);
+    update_chassis_rotation(
+        &mut chassis_transform,
+        &mut chassis_data,
+        input,
+        config.vehicle.rotation_speed,
+        dt,
+    );
 }
 
 pub fn remote_vehicle_controls(
@@ -131,8 +160,13 @@ pub fn remote_vehicle_controls(
 
     let input = input!(keyboard, KeyU, KeyO);
     let (mut chassis_transform, mut chassis_data) = chassis.into_inner();
-    chassis_data.yaw += input * config.vehicle.rotation_speed * dt;
-    chassis_transform.rotation = Quat::from_euler(EulerRot::YXZ, chassis_data.yaw, 0.0, 0.0);
+    update_chassis_rotation(
+        &mut chassis_transform,
+        &mut chassis_data,
+        input,
+        config.vehicle.rotation_speed,
+        dt,
+    );
 }
 
 pub fn gimbal_controls(
@@ -238,5 +272,37 @@ pub fn switch_slapper_control(
     commands.entity(next_root).insert(ActiveSlapper);
     for descendant in children.iter_descendants(next_root) {
         commands.entity(descendant).insert(ActiveSlapper);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chassis_rotation_smoothly_ramps_towards_target_speed() {
+        let mut transform = Transform::default();
+        let mut chassis = InfantryChassis::default();
+
+        update_chassis_rotation(&mut transform, &mut chassis, 1.0, 9.42, 0.016);
+
+        assert!(chassis.yaw_velocity > 0.0);
+        assert!(chassis.yaw_velocity < 9.42);
+        assert!(chassis.yaw > 0.0);
+    }
+
+    #[test]
+    fn chassis_rotation_smoothly_brakes_to_stop() {
+        let mut transform = Transform::default();
+        let mut chassis = InfantryChassis {
+            yaw: 0.0,
+            yaw_velocity: 9.42,
+        };
+
+        for _ in 0..60 {
+            update_chassis_rotation(&mut transform, &mut chassis, 0.0, 9.42, 0.016);
+        }
+
+        assert!(chassis.yaw_velocity.abs() < 1e-2);
     }
 }
