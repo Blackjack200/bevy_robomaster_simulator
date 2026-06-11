@@ -1,13 +1,13 @@
 pub mod depth;
 pub mod driver;
+pub mod view_copy;
 
-use bevy::anti_alias::fxaa::Fxaa;
 use bevy::camera::RenderTarget;
 use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::post_process::bloom::{Bloom, BloomCompositeMode, BloomPrefilter};
 use bevy::prelude::*;
-use bevy::render::view::Hdr;
+
+pub use driver::CaptureBundle;
 
 #[derive(Component)]
 pub struct CaptureSource;

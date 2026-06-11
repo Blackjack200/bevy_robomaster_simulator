@@ -1,8 +1,8 @@
 use crate::capture::{
-    CameraFov, CaptureSource, ImageHandle, compute_camera_intrinsics,
+    CameraFov, CaptureBundle, CaptureSource, ImageHandle, compute_camera_intrinsics,
     driver::{
-        CameraCapturePlugin, CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler,
-        SnapshotAsync, SnapshotSync,
+        CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler, SnapshotAsync,
+        SnapshotSync,
     },
     setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
@@ -198,14 +198,16 @@ pub fn publish_talos_pose_system(
 
 impl Plugin for TalosCapturePlugin {
     fn build(&self, app: &mut App) {
-        let (plugin, render_target_handle) = CameraCapturePlugin::new(
+        let capture = CaptureBundle::color_and_depth(
             app,
             self.config.clone(),
             vec![
                 Box::new(TalosSnapshotCreator::default()),
                 Box::new(DatasetSnapshotCreator::default()),
             ],
+            vec![Box::new(DatasetSnapshotCreator::depth())],
         );
+        let render_target_handle = capture.color_target().unwrap().clone();
 
         {
             let mut publisher = self.context.publisher.lock().unwrap();
@@ -228,7 +230,7 @@ impl Plugin for TalosCapturePlugin {
             });
         }
 
-        app.add_plugins(plugin)
+        app.add_plugins(capture)
             .insert_resource(ImageHandle(render_target_handle))
             .insert_resource(CameraFov(self.context.fov_y))
             .insert_resource(self.context.clone())

@@ -6,13 +6,13 @@ use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use bevy::render::{Extract, RenderApp};
 
-use crate::capture::driver::{CameraCapturePlugin, CaptureConfig, CapturedFrameKind};
+use crate::capture::driver::{CaptureConfig, CapturedFrameKind};
 use crate::capture::{
-    CameraFov, CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH, ImageHandle, setup_capture_camera,
-    sync_capture_camera,
+    CameraFov, CaptureBundle, CaptureSource, IMAGE_HEIGHT, IMAGE_WIDTH, ImageHandle,
+    setup_capture_camera, sync_capture_camera,
 };
 use crate::components::Infantry;
-use crate::dataset::prelude::{DatasetPlugin, capture};
+use crate::dataset::prelude::{DatasetPlugin, DatasetSnapshotCreator, capture};
 use crate::robomaster::prelude::*;
 
 // ==================== Configuration Parameters ====================
@@ -60,14 +60,15 @@ impl Plugin for AutoGenPlugin {
             frame_kind: CapturedFrameKind::Rgb8,
         };
 
-        use crate::dataset::prelude::DatasetSnapshotCreator;
-        let (camera_capture_plugin, image_handle) = CameraCapturePlugin::new(
+        let capture_bundle = CaptureBundle::color_and_depth(
             app,
             capture_config.clone(),
             vec![Box::new(DatasetSnapshotCreator::default())],
+            vec![Box::new(DatasetSnapshotCreator::depth())],
         );
+        let image_handle = capture_bundle.color_target().unwrap().clone();
 
-        app.add_plugins(camera_capture_plugin)
+        app.add_plugins(capture_bundle)
             .add_plugins(DatasetPlugin)
             .insert_resource(ImageHandle(image_handle))
             .insert_resource(CameraFov(FOV))

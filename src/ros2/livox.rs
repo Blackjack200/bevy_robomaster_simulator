@@ -1,11 +1,10 @@
+use crate::capture::CaptureBundle;
 use crate::capture::compute_camera_intrinsics;
 use crate::capture::depth::{
-    DepthCameraSettings, DepthTextureCopyPlugin, setup_depth_capture_camera,
-    sync_depth_capture_camera,
+    DepthCameraSettings, setup_depth_capture_camera, sync_depth_capture_camera,
 };
 use crate::capture::driver::{
-    CameraCapturePlugin, CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler,
-    SnapshotAsync, SnapshotSync,
+    CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler, SnapshotAsync, SnapshotSync,
 };
 use crate::ros2::topic::{LivoxPointCloudTopic, TopicPublisher};
 use crate::systems::GameplaySystems;
@@ -223,16 +222,14 @@ impl GpuCaptureHandler for RosLivoxSnapshotCreator {
 
 impl Plugin for RosLivoxPlugin {
     fn build(&self, app: &mut App) {
-        let (depth_copy_plugin, depth_texture_handle) =
-            DepthTextureCopyPlugin::new(app, self.config.width, self.config.height);
-        let depth_capture_plugin = CameraCapturePlugin::from_existing_handle(
+        let capture = CaptureBundle::depth_from_camera_order(
+            app,
             self.config.clone(),
-            depth_texture_handle,
+            crate::capture::depth::DEPTH_CAPTURE_CAMERA_ORDER,
             vec![Box::new(RosLivoxSnapshotCreator)],
         );
 
-        app.add_plugins(depth_copy_plugin)
-            .add_plugins(depth_capture_plugin)
+        app.add_plugins(capture)
             .insert_resource(DepthCameraSettings {
                 width: self.config.width,
                 height: self.config.height,

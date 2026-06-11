@@ -1,154 +1,129 @@
-use crate::components::Controlled;
-use crate::robomaster::prelude::{Armor, LightStrip, Side, VertexData};
-use bevy::{
-    ecs::system::{SystemParam, lifetimeless::Read},
-    prelude::*,
-};
+use bevy::prelude::*;
 
-#[derive(SystemParam)]
-pub struct Occlusion<'w, 's> {
-    child_of: Query<'w, 's, Read<ChildOf>>,
-    armor: Query<'w, 's, Read<Armor>>,
-    vertex: Query<'w, 's, Read<VertexData>>,
-    light_strip: Query<'w, 's, Read<LightStrip>>,
-    names: Query<'w, 's, Read<Name>>,
-    controlled: Query<'w, 's, Entity, With<Controlled>>,
-    global_transforms: Query<'w, 's, Read<GlobalTransform>>,
-    ray_cast: MeshRayCast<'w, 's>,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DepthSample {
+    pub pixel: UVec2,
+    pub expected_depth_m: f32,
 }
 
-enum OcclusionType {
-    None,
-    Tolerated,
-    Untolerated,
+pub const DEPTH_EPSILON_M: f32 = 0.05;
+
+pub fn linearize_reverse_z(depth: f32, near: f32) -> f32 {
+    if depth <= f32::EPSILON {
+        return f32::INFINITY;
+    }
+    near / depth
 }
 
-impl<'w, 's> Occlusion<'w, 's> {
-    fn sample_occluded(
-        &mut self,
-        camera_pos: Vec3,
-        _ident: &str,
-        armor_entity: Entity,
-        side: &Side,
-        _vertex_entity: Entity,
-        sample_pos: Vec3,
-    ) -> OcclusionType {
-        let dir = camera_pos - sample_pos;
-        let total_dist = dir.length();
+pub fn entity_fully_visible_in_depth(
+    width: u32,
+    height: u32,
+    depth_bytes: &[u8],
+    near: f32,
+    tolerance_m: f32,
+    samples: &[DepthSample],
+) -> bool {
+    !samples.is_empty()
+        && samples.iter().all(|sample| {
+            sample_visible_in_depth(width, height, depth_bytes, near, tolerance_m, *sample)
+        })
+}
 
-        if total_dist < f32::EPSILON {
-            return OcclusionType::None;
+pub fn sample_visible_in_depth(
+    width: u32,
+    height: u32,
+    depth_bytes: &[u8],
+    near: f32,
+    tolerance_m: f32,
+    sample: DepthSample,
+) -> bool {
+    if sample.pixel.x >= width || sample.pixel.y >= height || sample.expected_depth_m <= 0.0 {
+        return false;
+    }
+
+    let pixel_index = sample.pixel.y as usize * width as usize + sample.pixel.x as usize;
+    let byte_index = pixel_index * 4;
+    if byte_index + 4 > depth_bytes.len() {
+        return false;
+    }
+
+    let depth = f32::from_le_bytes([
+        depth_bytes[byte_index],
+        depth_bytes[byte_index + 1],
+        depth_bytes[byte_index + 2],
+        depth_bytes[byte_index + 3],
+    ]);
+    let measured_depth_m = linearize_reverse_z(depth, near);
+    measured_depth_m + tolerance_m >= sample.expected_depth_m
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode_depths(depths_m: &[f32], near: f32) -> Vec<u8> {
+        let mut out = Vec::with_capacity(depths_m.len() * 4);
+        for depth_m in depths_m {
+            let reverse_z = near / depth_m;
+            out.extend_from_slice(&reverse_z.to_le_bytes());
         }
+        out
+    }
 
-        let ray = Ray3d::new(sample_pos, Dir3::new(dir.normalize()).unwrap());
-        let hits = self.ray_cast.cast_ray(
-            ray,
-            &MeshRayCastSettings {
-                visibility: RayCastVisibility::VisibleInView,
-                filter: &|e| -> bool {
-                    if self
-                        .child_of
-                        .iter_ancestors(e)
-                        .any(|parent| self.controlled.get(parent).is_ok())
-                    {
-                        return false;
-                    }
-                    let is_vertex = self.child_of.iter_ancestors(e).any(|parent| {
-                        let Ok(parent) = self.vertex.get(parent) else {
-                            return false;
-                        };
-                        parent.side != *side
-                    });
-                    if is_vertex {
-                        return false;
-                    }
-                    let is_self = self
-                        .child_of
-                        .iter_ancestors(e)
-                        .any(|parent| parent == armor_entity);
-                    if is_self {
-                        // 检查是否是灯条
-                        let is_light_strip = self
-                            .child_of
-                            .iter_ancestors(e)
-                            .any(|parent| self.light_strip.get(parent).is_ok());
-
-                        if is_light_strip {
-                            // 灯条：只有另一侧的参与 raycast
-                            let is_other_side = self.child_of.iter_ancestors(e).any(|parent| {
-                                self.light_strip
-                                    .get(parent)
-                                    .map(|ls| ls.side != *side)
-                                    .unwrap_or(false)
-                            });
-                            return is_other_side;
-                        }
-
-                        // 非灯条的装甲板部件（如盖板）：参与 raycast
-                        return true;
-                    }
-                    true
-                },
-                ..default()
+    #[test]
+    fn sample_visible_when_depth_matches_target() {
+        let near = 0.1;
+        let depth = encode_depths(&[2.0], near);
+        assert!(sample_visible_in_depth(
+            1,
+            1,
+            &depth,
+            near,
+            DEPTH_EPSILON_M,
+            DepthSample {
+                pixel: UVec2::ZERO,
+                expected_depth_m: 2.0,
             },
-        );
-        for &(e, ref hit) in hits {
-            'g: for ancestor in self.child_of.iter_ancestors(e) {
-                let Ok(ancestor) = self.light_strip.get(ancestor) else {
-                    continue 'g;
-                };
-                if ancestor.side != *side {
-                    //untolerated
-                    return OcclusionType::Untolerated;
-                }
-            }
-
-            let is_occluded = hit.distance < total_dist - f32::EPSILON;
-
-            if is_occluded {
-                return OcclusionType::Tolerated;
-            }
-        }
-        OcclusionType::None
+        ));
     }
 
-    pub fn visible(
-        &mut self,
-        camera_pos: Vec3,
-        _forward: Vec3,
-        _markers: &[(Vec3, (u32, u32)); 4],
-        ident: &str,
-        armor_entity: Entity,
-        vertices: &[(&Side, Entity, Vec<Vec3>)],
-    ) -> bool {
-        vertices
-            .iter()
-            .all(move |v| self.side_visible(camera_pos, ident, armor_entity, v))
+    #[test]
+    fn sample_occluded_when_blocker_is_closer() {
+        let near = 0.1;
+        let depth = encode_depths(&[1.0], near);
+        assert!(!sample_visible_in_depth(
+            1,
+            1,
+            &depth,
+            near,
+            DEPTH_EPSILON_M,
+            DepthSample {
+                pixel: UVec2::ZERO,
+                expected_depth_m: 2.0,
+            },
+        ));
     }
 
-    fn side_visible(
-        &mut self,
-        camera_pos: Vec3,
-        ident: &str,
-        armor_entity: Entity,
-        vertex_entity: &(&Side, Entity, Vec<Vec3>),
-    ) -> bool {
-        let (side, vertex_entity, ref samples) = *vertex_entity;
-        let iter = samples.iter().map(move |&sample| {
-            self.sample_occluded(camera_pos, ident, armor_entity, side, vertex_entity, sample)
-        });
-        let mut visible = false;
-        for result in iter {
-            match result {
-                OcclusionType::None => {
-                    visible = true;
-                }
-                OcclusionType::Tolerated => {}
-                OcclusionType::Untolerated => {
-                    return false;
-                }
-            }
-        }
-        visible
+    #[test]
+    fn entity_requires_all_samples_visible() {
+        let near = 0.1;
+        let depth = encode_depths(&[2.0, 1.0], near);
+        assert!(!entity_fully_visible_in_depth(
+            2,
+            1,
+            &depth,
+            near,
+            DEPTH_EPSILON_M,
+            &[
+                DepthSample {
+                    pixel: UVec2::new(0, 0),
+                    expected_depth_m: 2.0,
+                },
+                DepthSample {
+                    pixel: UVec2::new(1, 0),
+                    expected_depth_m: 2.0,
+                },
+            ],
+        ));
     }
 }

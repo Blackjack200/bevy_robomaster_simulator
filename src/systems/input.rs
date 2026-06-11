@@ -38,7 +38,7 @@ macro_rules! input {
     }};
 }
 
-const CHASSIS_ROTATION_RESPONSE: f32 = 90.0;
+const CHASSIS_ROTATION_RESPONSE: f32 = 40.0;
 const CHASSIS_ROTATION_STOP_EPSILON: f32 = 1e-3;
 
 fn update_chassis_rotation(

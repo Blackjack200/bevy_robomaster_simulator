@@ -1,10 +1,10 @@
 //! ROS2 图像捕获实现
 
 use crate::capture::{
-    CameraFov, ImageHandle, compute_camera_intrinsics,
+    CameraFov, CaptureBundle, ImageHandle, compute_camera_intrinsics,
     driver::{
-        CameraCapturePlugin, CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler,
-        SnapshotAsync, SnapshotSync,
+        CaptureConfig, CapturedFrame, CapturedFrameKind, GpuCaptureHandler, SnapshotAsync,
+        SnapshotSync,
     },
     setup_capture_camera, setup_preview_window, sync_capture_camera,
 };
@@ -111,15 +111,18 @@ pub struct RosCapturePlugin {
 
 impl Plugin for RosCapturePlugin {
     fn build(&self, app: &mut App) {
-        let (plugin, render_target_handle) = CameraCapturePlugin::new(
+        let capture = CaptureBundle::color_and_depth(
             app,
             self.config.clone(),
             vec![
                 Box::new(RosSnapshotCreator::default()),
                 Box::new(DatasetSnapshotCreator::default()),
             ],
+            vec![Box::new(DatasetSnapshotCreator::depth())],
         );
-        app.add_plugins(plugin)
+        let render_target_handle = capture.color_target().unwrap().clone();
+
+        app.add_plugins(capture)
             .insert_resource(ImageHandle(render_target_handle))
             .insert_resource(CameraFov(self.context.fov_y))
             .insert_resource(self.context.clone())

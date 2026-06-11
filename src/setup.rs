@@ -86,7 +86,14 @@ pub fn setup(
         SceneRoot(asset_server.load("CALIB.glb#Scene0")),
         Transform::IDENTITY
             .with_scale(Vec3::splat(1.0))
-            .with_translation(Vec3::new(1.0, 0.5, 1.0)),
+            .with_translation(Vec3::new(1.0, 2.5, 1.0)),
+    ));
+
+    commands.spawn((
+        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
+        Transform::IDENTITY
+            .with_scale(Vec3::splat(1.0))
+            .with_translation(Vec3::new(2.0, 0.5, 2.0)),
     ));
 
     commands.spawn((

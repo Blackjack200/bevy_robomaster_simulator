@@ -1,3 +1,4 @@
+use bevy::asset::RenderAssetUsages;
 use bevy::ecs::world::DeferredWorld;
 use bevy::render::texture::GpuImage;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -40,6 +41,159 @@ pub struct CapturedFrame<'a> {
     pub width: u32,
     pub height: u32,
     pub data: &'a [u8],
+}
+
+pub fn create_capture_image_handle(
+    app: &mut App,
+    width: u32,
+    height: u32,
+    texture_format: TextureFormat,
+    asset_usages: RenderAssetUsages,
+    texture_usages: TextureUsages,
+) -> Handle<Image> {
+    let extent = Extent3d {
+        width,
+        height,
+        ..Default::default()
+    };
+
+    let mut image = if matches!(
+        texture_format,
+        TextureFormat::Depth16Unorm
+            | TextureFormat::Depth24Plus
+            | TextureFormat::Depth24PlusStencil8
+            | TextureFormat::Depth32Float
+            | TextureFormat::Depth32FloatStencil8
+    ) {
+        Image::new_uninit(
+            extent,
+            bevy::render::render_resource::TextureDimension::D2,
+            texture_format,
+            asset_usages,
+        )
+    } else {
+        Image::new_target_texture(width, height, texture_format, Some(texture_format))
+    };
+
+    image.texture_descriptor.usage |= texture_usages;
+    let mut images = app.world_mut().resource_mut::<Assets<Image>>();
+    images.add(image)
+}
+
+enum CapturePluginNode {
+    Camera(CameraCapturePlugin),
+    ViewCopy(crate::capture::view_copy::ViewTextureCopyPlugin),
+}
+
+pub struct CaptureBundle {
+    plugins: Vec<CapturePluginNode>,
+    color_target: Option<Handle<Image>>,
+    depth_target: Option<Handle<Image>>,
+}
+
+impl CaptureBundle {
+    pub fn color(
+        app: &mut App,
+        config: CaptureConfig,
+        snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+    ) -> Self {
+        let (plugin, color_target) = CameraCapturePlugin::new(app, config, snapshots);
+        Self {
+            plugins: vec![CapturePluginNode::Camera(plugin)],
+            color_target: Some(color_target),
+            depth_target: None,
+        }
+    }
+
+    pub fn color_and_depth(
+        app: &mut App,
+        color_config: CaptureConfig,
+        color_snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+        depth_snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+    ) -> Self {
+        Self::color(app, color_config.clone(), color_snapshots).with_depth_from_camera_order(
+            app,
+            CaptureConfig {
+                width: color_config.width,
+                height: color_config.height,
+                texture_format: TextureFormat::Depth32Float,
+                frame_kind: CapturedFrameKind::Depth32F,
+            },
+            crate::capture::CAPTURE_CAMERA_ORDER,
+            depth_snapshots,
+        )
+    }
+
+    pub fn depth_from_camera_order(
+        app: &mut App,
+        config: CaptureConfig,
+        camera_order: isize,
+        snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+    ) -> Self {
+        let mut bundle = Self {
+            plugins: Vec::new(),
+            color_target: None,
+            depth_target: None,
+        };
+        bundle.push_depth_from_camera_order(app, config, camera_order, snapshots);
+        bundle
+    }
+
+    pub fn with_depth_from_camera_order(
+        mut self,
+        app: &mut App,
+        config: CaptureConfig,
+        camera_order: isize,
+        snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+    ) -> Self {
+        self.push_depth_from_camera_order(app, config, camera_order, snapshots);
+        self
+    }
+
+    pub fn color_target(&self) -> Option<&Handle<Image>> {
+        self.color_target.as_ref()
+    }
+
+    pub fn depth_target(&self) -> Option<&Handle<Image>> {
+        self.depth_target.as_ref()
+    }
+
+    fn push_depth_from_camera_order(
+        &mut self,
+        app: &mut App,
+        config: CaptureConfig,
+        camera_order: isize,
+        snapshots: Vec<Box<dyn GpuCaptureHandler>>,
+    ) {
+        let (view_copy, depth_target) =
+            crate::capture::view_copy::ViewTextureCopyPlugin::new_depth_for_camera_order(
+                app,
+                config.width,
+                config.height,
+                camera_order,
+            );
+        let depth_capture =
+            CameraCapturePlugin::from_existing_handle(config, depth_target.clone(), snapshots);
+
+        self.plugins.push(CapturePluginNode::ViewCopy(view_copy));
+        self.plugins.push(CapturePluginNode::Camera(depth_capture));
+        self.depth_target = Some(depth_target);
+    }
+}
+
+impl Plugin for CaptureBundle {
+    fn is_unique(&self) -> bool {
+        false
+    }
+
+    fn build(&self, app: &mut App) {
+        for plugin in &self.plugins {
+            match plugin {
+                CapturePluginNode::Camera(plugin) => plugin.build(app),
+                CapturePluginNode::ViewCopy(plugin) => plugin.build(app),
+            }
+        }
+    }
 }
 
 type ToSyncSnapshot = Box<dyn GpuCaptureHandler>;
@@ -361,20 +515,14 @@ impl CameraCapturePlugin {
         config: CaptureConfig,
         snapshots: Vec<ToSyncSnapshot>,
     ) -> (Self, Handle<Image>) {
-        let extent = Extent3d {
-            width: config.width,
-            height: config.height,
-            ..Default::default()
-        };
-        let mut render_target_image = Image::new_target_texture(
-            extent.width,
-            extent.height,
+        let handle = create_capture_image_handle(
+            app,
+            config.width,
+            config.height,
             config.texture_format,
-            Some(config.texture_format),
+            RenderAssetUsages::default(),
+            TextureUsages::COPY_SRC,
         );
-        render_target_image.texture_descriptor.usage |= TextureUsages::COPY_SRC;
-        let mut images = app.world_mut().resource_mut::<Assets<Image>>();
-        let handle = images.add(render_target_image);
 
         (
             Self {

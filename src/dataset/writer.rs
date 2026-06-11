@@ -27,6 +27,7 @@ pub struct ArmorEntry {
 pub struct DatasetWriter {
     image_dir: PathBuf,
     label_dir: PathBuf,
+    depth_dir: PathBuf,
     seq: u64,
 }
 
@@ -35,30 +36,33 @@ impl DatasetWriter {
         let base = Path::new(directory);
         let image_dir = base.join("images");
         let label_dir = base.join("label");
+        let depth_dir = base.join("depth");
 
         create_dir_all(&image_dir)?;
         create_dir_all(&label_dir)?;
+        create_dir_all(&depth_dir)?;
 
         Ok(Self {
             image_dir,
             label_dir,
+            depth_dir,
             seq: 0,
         })
     }
 
-    fn next_frame_name(&mut self) -> String {
+    pub fn next_frame_name(&mut self) -> String {
         self.seq += 1;
         format!("frame_{:06}", self.seq)
     }
 
-    pub fn write_entry(
+    pub fn write_color_entry(
         &mut self,
+        frame: &str,
         height: u32,
         width: u32,
         data: &[u8],
         entries: &[ArmorEntry],
     ) -> std::io::Result<()> {
-        let frame = self.next_frame_name();
         self.save_image(
             height,
             width,
@@ -84,10 +88,61 @@ impl DatasetWriter {
         Ok(())
     }
 
+    pub fn write_depth_entry(
+        &mut self,
+        frame: &str,
+        width: u32,
+        height: u32,
+        depth_bytes: &[u8],
+        near: f32,
+        far: f32,
+    ) -> std::io::Result<()> {
+        let depth_mm = depth_bytes_to_mm(depth_bytes, near, far);
+        let mut bytes = Vec::with_capacity(depth_mm.len() * 2);
+        for value in depth_mm {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        image::save_buffer(
+            self.depth_dir.join(format!("{}.png", frame)),
+            bytes.as_slice(),
+            width,
+            height,
+            image::ColorType::L16,
+        )
+        .map_err(|e| Error::new(Other, e))?;
+        Ok(())
+    }
+
     fn save_image(&self, height: u32, width: u32, data: &[u8], path: &Path) -> std::io::Result<()> {
         JpegEncoder::new(&mut File::create(path)?)
             .encode(data, width, height, Rgb8)
             .map_err(|e| Error::new(Other, e))?;
         Ok(())
+    }
+}
+
+fn depth_bytes_to_mm(data: &[u8], near: f32, far: f32) -> Vec<u16> {
+    data.chunks_exact(4)
+        .map(|chunk| {
+            let depth = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            let meters = if depth <= f32::EPSILON {
+                far
+            } else {
+                (near / depth).clamp(near, far)
+            };
+            (meters * 1000.0).round().clamp(0.0, u16::MAX as f32) as u16
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reverse_z_depth_converts_to_mm() {
+        let raw = (0.1f32).to_le_bytes();
+        let got = depth_bytes_to_mm(&raw, 0.1, 80.0);
+        assert_eq!(got[0], 1000);
     }
 }
