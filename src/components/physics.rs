@@ -22,6 +22,18 @@ pub struct ProjectileCooldown(pub Timer);
 #[derive(Resource)]
 pub struct ProjectileSetting(pub Handle<Mesh>, pub Handle<StandardMaterial>);
 
+#[derive(Resource)]
+pub struct DartSetting(pub Handle<Scene>);
+
+#[derive(Component)]
+pub struct GroundRoot;
+
+#[derive(Component)]
+pub struct DartLaunch;
+
+#[derive(Component)]
+pub struct DartProjectile;
+
 #[derive(Component, Deref, DerefMut)]
 pub struct PreciousCollision(
     pub  HashMap<

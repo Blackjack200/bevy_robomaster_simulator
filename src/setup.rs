@@ -7,8 +7,9 @@ use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use std::collections::HashMap;
 
 use crate::components::{
-    ActiveSlapper, Controlled, GameLayer, Infantry, InfantryChassis, InfantryGimbal,
-    InfantryLaunchOffset, InfantryViewOffset, MainCamera, PreciousCollision, SlapperInfantry,
+    ActiveSlapper, Controlled, DartLaunch, GameLayer, GroundRoot, Infantry, InfantryChassis,
+    InfantryGimbal, InfantryLaunchOffset, InfantryViewOffset, MainCamera, PreciousCollision,
+    SlapperInfantry,
 };
 use crate::config::SimulationConfig;
 use crate::robomaster::prelude::{
@@ -70,6 +71,7 @@ pub fn setup(
     commands.spawn((
         SceneRoot(asset_server.load("GROUND.glb#Scene0")),
         Transform::IDENTITY,
+        GroundRoot,
         Friction::new(0.5),
         PreciousCollision(HashMap::from([(
             "GROUND_DENSE".to_string(),
@@ -228,6 +230,30 @@ pub fn setup_ground(
     })
 }
 
+pub fn setup_dart_launch(
+    events: On<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    name: Query<&Name>,
+    ground: Query<(), With<GroundRoot>>,
+) {
+    if ground.get(events.entity).is_err() {
+        return;
+    }
+
+    for entity in children.iter_descendants(events.entity) {
+        let Ok(name) = name.get(entity) else {
+            continue;
+        };
+        if name.as_str() == "DART_LAUNCH_DIRECTION" {
+            commands.entity(entity).insert(DartLaunch);
+            return;
+        }
+    }
+
+    warn!("GROUND.glb is missing DART_LAUNCH_DIRECTION");
+}
+
 pub fn setup_vehicle(
     events: On<SceneInstanceReady>,
     mut commands: Commands,
@@ -268,14 +294,29 @@ pub fn setup_vehicle(
     } else {
         GameLayer::VehicleOther
     };
-    let vehicle_filters = [
-        GameLayer::Default,
-        GameLayer::VehicleSelf,
-        GameLayer::VehicleOther,
-        GameLayer::ProjectileOther,
-        GameLayer::Environment,
-    ];
-    let vehicle_collision_layers = CollisionLayers::new(vehicle_layers, vehicle_filters);
+
+    let vehicle_collision_layers = if is_local {
+        CollisionLayers::new(
+            vehicle_layers,
+            [
+                GameLayer::Default,
+                GameLayer::VehicleOther,
+                GameLayer::ProjectileOther,
+                GameLayer::Environment,
+            ],
+        )
+    } else {
+        CollisionLayers::new(
+            vehicle_layers,
+            [
+                GameLayer::Default,
+                GameLayer::VehicleSelf,
+                GameLayer::VehicleOther,
+                GameLayer::ProjectileOther,
+                GameLayer::Environment,
+            ],
+        )
+    };
 
     commands.entity(root).insert((
         RigidBody::Dynamic,

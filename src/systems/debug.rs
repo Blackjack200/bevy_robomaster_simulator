@@ -8,7 +8,7 @@ use crate::statistic::ProjectileStatistics;
 
 fn create_help_text(auto_aim: bool, stats: &ProjectileStatistics) -> Text {
     format!(
-        "auto-aim={} total={} accurate={} pct={:.2}\nControls: F2-Screenshot F3-Change Camera | WASD-Move Mouse-Look Space-Shoot",
+        "auto-aim={} total={} accurate={} pct={:.2}\nControls: F2-Screenshot F3-Change Camera | WASD-Move Mouse-Look Space-Shoot G-Dart",
         if auto_aim { "ON " } else { "OFF" },
         stats.launch_count,
         stats.accurate_count,

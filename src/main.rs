@@ -34,14 +34,15 @@ use crate::config::{ConfigPlugin, SimulationConfig};
 use crate::dataset::prelude::DatasetPlugin;
 use crate::handler::{on_activate, on_hit};
 use crate::robomaster::prelude::RoboMasterPlugins;
-use crate::setup::{setup, setup_collision, setup_ground, setup_vehicle};
+use crate::setup::{setup, setup_collision, setup_dart_launch, setup_ground, setup_vehicle};
 use crate::statistic::ProjectileStatistics;
 use crate::systems::{
     ChassisObservationFrame, GameplaySystems, PreviousKinematicState, auto_aim_switch,
-    change_appearance, cleanup_projectiles, following_controls, freecam_controls, gimbal_controls,
-    projectile_aerodynamics, projectile_launch, remote_gimbal_controls, remote_vehicle_controls,
-    screenshot_on_f2, screenshot_saving, setup_projectile, switch_slapper_control, uav_launch,
-    update_chassis_observation, update_help_text, vehicle_controls,
+    change_appearance, cleanup_projectiles, dart_launch, following_controls, freecam_controls,
+    gimbal_controls, projectile_aerodynamics, projectile_launch, remote_gimbal_controls,
+    remote_vehicle_controls, screenshot_on_f2, screenshot_saving, setup_projectile,
+    switch_slapper_control, uav_launch, update_chassis_observation, update_help_text,
+    vehicle_controls,
 };
 
 /// Command-line arguments for the application
@@ -197,6 +198,7 @@ fn main() {
         )))
         .add_systems(Startup, (setup, setup_projectile))
         .add_observer(setup_ground)
+        .add_observer(setup_dart_launch)
         .add_observer(setup_vehicle)
         .add_observer(setup_collision)
         .add_observer(on_hit)
@@ -254,6 +256,12 @@ fn main() {
             projectile_launch
                 .after(TransformSystems::Propagate)
                 .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.pressed(KeyCode::Space)),
+        )
+        .add_systems(
+            PostUpdate,
+            dart_launch
+                .after(TransformSystems::Propagate)
+                .run_if(|keyboard: Res<ButtonInput<KeyCode>>| keyboard.just_pressed(KeyCode::KeyG)),
         )
         .add_systems(PostUpdate, uav_launch.after(TransformSystems::Propagate))
         .add_systems(FixedUpdate, projectile_aerodynamics);
