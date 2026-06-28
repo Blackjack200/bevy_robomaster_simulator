@@ -155,7 +155,7 @@ fn process_subscription(
 
 fn heartbeat_system(context: Option<Res<TalosCaptureContext>>) {
     if let Some(ctx) = context {
-        if let Ok(mut publisher) = ctx.publisher.lock() {
+        if let Ok(mut publisher) = ctx.publisher.try_lock() {
             publisher.update_heartbeat();
         }
     }

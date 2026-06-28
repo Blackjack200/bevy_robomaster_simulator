@@ -349,6 +349,9 @@ fn image_copy_driver(world: &World, mut render_context: RenderContext) {
             .iter()
             .filter_map(|handler| handler.captured(world))
             .collect();
+        if snapshot.is_empty() {
+            continue;
+        }
 
         render_context.command_encoder().copy_texture_to_buffer(
             TexelCopyTextureInfo {

@@ -108,7 +108,7 @@ impl SnapshotAsync for TalosSnapshot {
             return;
         }
 
-        if let Ok(mut publisher) = self.ctx.lock() {
+        if let Ok(mut publisher) = self.ctx.try_lock() {
             publisher.publish_image(frame.data, self.frame_seq, self.timestamp_ns);
         }
     }
@@ -181,7 +181,7 @@ pub fn publish_talos_pose_system(
         frame_stamp.timestamp_ns,
     );
 
-    if let Ok(mut publisher) = ctx.publisher.lock() {
+    if let Ok(mut publisher) = ctx.publisher.try_lock() {
         publish_pose_data(
             &mut publisher,
             frame_stamp.frame_seq,

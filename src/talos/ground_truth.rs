@@ -175,7 +175,7 @@ pub fn publish_ground_truth_system(
         batch.rune_count += 1;
     }
 
-    if let Ok(mut publisher) = ctx.publisher.lock() {
+    if let Ok(mut publisher) = ctx.publisher.try_lock() {
         publisher.publish_ground_truth(&batch);
     }
 }
