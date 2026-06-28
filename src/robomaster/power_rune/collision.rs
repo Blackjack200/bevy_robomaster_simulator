@@ -78,7 +78,7 @@ fn handle_rune_collision(
         .entity(projectile_entity)
         .remove::<CollisionEventsEnabled>();
 
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     let outcome = mechanism.state_mut().hit(target.target, &mut rng);
     rotation.sync_activation(
         mechanism.state().mode(),

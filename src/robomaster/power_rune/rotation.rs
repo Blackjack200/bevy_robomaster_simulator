@@ -2,7 +2,7 @@ use crate::robomaster::power_rune::common::RuneMode;
 use crate::robomaster::power_rune::consts::ROTATION_BASELINE_SMALL;
 use bevy::math::Dir3;
 use bevy::prelude::{Component, Transform};
-use rand::{Rng, RngExt};
+use rand::Rng;
 
 struct VariableRotation {
     a: f32,
@@ -12,8 +12,8 @@ struct VariableRotation {
 
 impl VariableRotation {
     pub fn random(rng: &mut impl Rng) -> Self {
-        let a = rng.random_range(0.780..=1.045);
-        let omega = rng.random_range(1.884..=2.0);
+        let a = rng.gen_range(0.780..=1.045);
+        let omega = rng.gen_range(1.884..=2.0);
         Self { a, omega, t: 0.0 }
     }
 
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn large_rune_activation_uses_fresh_sine_params() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut controller = RotationController::new(true);
 
         controller.begin_activation(RuneMode::Large, &mut rng);
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn large_rune_sync_preserves_active_variable_rotation() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut controller = RotationController::new(true);
 
         controller.sync_activation(RuneMode::Large, true, &mut rng);

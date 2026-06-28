@@ -1,4 +1,5 @@
 use bevy::asset::RenderAssetUsages;
+use bevy::core_pipeline::schedule::camera_driver;
 use bevy::ecs::world::DeferredWorld;
 use bevy::render::texture::GpuImage;
 use bevy::tasks::AsyncComputeTaskPool;
@@ -8,13 +9,12 @@ use bevy::{
     render::{
         Render, RenderApp, RenderSystems,
         render_asset::RenderAssets,
-        render_graph::{self, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel},
         render_resource::{
             Buffer, BufferDescriptor, BufferUsages, Extent3d, MapMode, Origin3d,
             TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, TextureAspect,
             TextureFormat, TextureUsages,
         },
-        renderer::{RenderContext, RenderDevice},
+        renderer::{RenderContext, RenderDevice, RenderGraph, RenderGraphSystems},
     },
 };
 use std::collections::VecDeque;
@@ -321,82 +321,64 @@ pub trait GpuCaptureHandler: Send + Sync + 'static {
     fn captured(&self, world: &World) -> Option<Box<dyn SnapshotSync>>;
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash, RenderLabel)]
-struct ImageCopy;
+fn image_copy_driver(world: &World, mut render_context: RenderContext) {
+    let Some(copiers) = world.get_resource::<ImageCopiers>() else {
+        return;
+    };
+    let Some(gpu_images) = world.get_resource::<RenderAssets<GpuImage>>() else {
+        return;
+    };
 
-#[derive(Default)]
-struct ImageCopyDriver;
-
-impl render_graph::Node for ImageCopyDriver {
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
-        let Some(copiers) = world.get_resource::<ImageCopiers>() else {
-            return Ok(());
-        };
-        let Some(gpu_images) = world.get_resource::<RenderAssets<GpuImage>>() else {
-            return Ok(());
+    for copier in copiers.iter() {
+        let Some(src_image) = gpu_images.get(&copier.src_image) else {
+            continue;
         };
 
-        for copier in copiers.iter() {
-            let Some(src_image) = gpu_images.get(&copier.src_image) else {
-                continue;
-            };
+        let size = src_image.texture_descriptor.size;
+        let format = src_image.texture_descriptor.format;
+        let block_dimensions = format.block_dimensions();
+        let block_size = format.block_copy_size(None).unwrap();
+        let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(
+            (size.width as usize / block_dimensions.0 as usize) * block_size as usize,
+        );
+        let buffer_size = padded_bytes_per_row as u64 * size.height as u64;
+        let buffer = copier.acquire_buffer(render_context.render_device(), buffer_size);
 
-            let block_dimensions = src_image.texture_format.block_dimensions();
-            let block_size = src_image.texture_format.block_copy_size(None).unwrap();
-            let padded_bytes_per_row = RenderDevice::align_copy_bytes_per_row(
-                (src_image.size.width as usize / block_dimensions.0 as usize) * block_size as usize,
-            );
-            let buffer_size = padded_bytes_per_row as u64 * src_image.size.height as u64;
-            let buffer = copier.acquire_buffer(render_context.render_device(), buffer_size);
+        let snapshot: Vec<DynSnapshotSync> = copier
+            .snapshots
+            .iter()
+            .filter_map(|handler| handler.captured(world))
+            .collect();
 
-            let snapshot: Vec<DynSnapshotSync> = copier
-                .snapshots
-                .iter()
-                .filter_map(|handler| handler.captured(world))
-                .collect();
-
-            render_context.command_encoder().copy_texture_to_buffer(
-                TexelCopyTextureInfo {
-                    texture: &src_image.texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect: capture_texture_aspect(src_image.texture_format),
+        render_context.command_encoder().copy_texture_to_buffer(
+            TexelCopyTextureInfo {
+                texture: &src_image.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: capture_texture_aspect(format),
+            },
+            TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(
+                        std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
+                            .unwrap()
+                            .into(),
+                    ),
+                    rows_per_image: None,
                 },
-                TexelCopyBufferInfo {
-                    buffer: &buffer,
-                    layout: TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(
-                            std::num::NonZero::<u32>::new(padded_bytes_per_row as u32)
-                                .unwrap()
-                                .into(),
-                        ),
-                        rows_per_image: None,
-                    },
-                },
-                src_image.size,
-            );
+            },
+            size,
+        );
 
-            let mut queue = copier.queue.lock().unwrap();
-            queue.push_back((
-                buffer,
-                snapshot,
-                src_image.size.width,
-                src_image.size.height,
-                src_image.texture_format,
-            ));
-            while queue.len() > MAX_IN_FLIGHT_FRAMES {
-                if let Some((buffer, _, _, _, _)) = queue.pop_front() {
-                    copier.free_buffers.lock().unwrap().push(buffer);
-                }
+        let mut queue = copier.queue.lock().unwrap();
+        queue.push_back((buffer, snapshot, size.width, size.height, format));
+        while queue.len() > MAX_IN_FLIGHT_FRAMES {
+            if let Some((buffer, _, _, _, _)) = queue.pop_front() {
+                copier.free_buffers.lock().unwrap().push(buffer);
             }
         }
-        Ok(())
     }
 }
 
@@ -576,10 +558,12 @@ impl Plugin for CameraCapturePlugin {
 
         let installed = render_app.world().resource::<ImageCopyDriverInstalled>().0;
         if !installed {
-            let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-            graph.add_node(ImageCopy, ImageCopyDriver);
-            graph.add_node_edge(bevy::render::graph::CameraDriverLabel, ImageCopy);
-            drop(graph);
+            render_app.add_systems(
+                RenderGraph,
+                image_copy_driver
+                    .after(camera_driver)
+                    .in_set(RenderGraphSystems::Render),
+            );
 
             render_app
                 .world_mut()

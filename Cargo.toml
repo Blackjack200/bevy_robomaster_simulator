@@ -3,9 +3,9 @@ members = [".", "crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-bevy = { version = "0.18", features = ["dynamic_linking", "jpeg"] }
-avian3d = "0.6"
-bevy-inspector-egui = "0.36"
+bevy = { version = "0.19", features = ["dynamic_linking", "jpeg"] }
+avian3d = "0.7"
+bevy-inspector-egui = "0.37"
 memmap2 = { version = "0" }
 
 [package]
@@ -37,7 +37,7 @@ notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4.6", features = ["derive"] }
-ffmpeg-next = { version = "8.0.0", optional = true }
+ffmpeg-next = { version = "8.1.0", optional = true }
 
 [[bin]]
 name = "talos_gimbal_mock_server"

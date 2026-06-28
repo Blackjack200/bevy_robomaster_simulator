@@ -110,13 +110,13 @@ fn setup_auto_gen(mut commands: Commands, asset_server: Res<AssetServer>) {
 
     // Create ground
     commands.spawn((
-        SceneRoot(asset_server.load("GROUND.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("GROUND.glb"))),
         Transform::IDENTITY,
     ));
 
     // Create target robot
     commands.spawn((
-        SceneRoot(asset_server.load("HERO.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("HERO.glb"))),
         Transform::from_xyz(0.0, 1.0, 0.0),
         Infantry::new(Team::Blue, HERO_ROBOT_CONFIG),
         ScanArmor::new(Team::Blue, HERO_ROBOT_CONFIG.armor),

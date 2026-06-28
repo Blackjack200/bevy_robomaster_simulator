@@ -2,7 +2,7 @@ use avian3d::prelude::*;
 use bevy::anti_alias::fxaa::Fxaa;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use bevy::scene::{SceneInstance, SceneInstanceReady};
+use bevy::world_serialization::{WorldInstance, WorldInstanceReady};
 use bevy_inspector_egui::bevy_egui::{EguiGlobalSettings, PrimaryEguiContext};
 use std::collections::HashMap;
 
@@ -37,7 +37,8 @@ pub fn setup(
         DirectionalLight {
             color: Color::srgb(0.9, 0.95, 1.0),
             illuminance: config.render.illuminance,
-            shadows_enabled: config.render.shadows,
+            shadow_maps_enabled: config.render.shadows,
+            contact_shadows_enabled: config.render.shadows,
             ..default()
         },
         Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)),
@@ -69,7 +70,7 @@ pub fn setup(
     };
 
     commands.spawn((
-        SceneRoot(asset_server.load("GROUND.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("GROUND.glb"))),
         Transform::IDENTITY,
         GroundRoot,
         Friction::new(0.5),
@@ -85,14 +86,14 @@ pub fn setup(
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("CALIB.glb"))),
         Transform::IDENTITY
             .with_scale(Vec3::splat(1.0))
             .with_translation(Vec3::new(1.0, 2.5, 1.0)),
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("CALIB.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("CALIB.glb"))),
         Transform::IDENTITY
             .with_scale(Vec3::splat(1.0))
             .with_translation(Vec3::new(2.0, 0.5, 2.0)),
@@ -100,13 +101,13 @@ pub fn setup(
 
     commands.spawn((
         RigidBody::Static,
-        SceneRoot(asset_server.load("OUTPOST.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("OUTPOST.glb"))),
         Transform::IDENTITY,
         ScanOutpost,
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("TECH_CORE.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("TECH_CORE.glb"))),
         Transform::IDENTITY,
         TechCoreRoot,
         PreciousCollision(HashMap::from([(
@@ -143,28 +144,28 @@ pub fn setup(
         RigidBody::Static,
         CollisionMargin(0.001),
         Restitution::ZERO,
-        SceneRoot(asset_server.load("POWER.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("POWER.glb"))),
         Transform::IDENTITY,
         PowerRuneRoot,
         PreciousCollision(power_rune_col),
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("vehicle.glb"))),
         Transform::from_xyz(0.0, 1.0, 0.0),
         Infantry::new(Team::Red, INFANTRY_THREE_CONFIG),
         Controlled,
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("vehicle.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("vehicle.glb"))),
         Transform::from_xyz(1.0, 1.0, 1.0),
         Infantry::new(Team::Blue, INFANTRY_THREE_CONFIG),
         SlapperInfantry,
     ));
 
     commands.spawn((
-        SceneRoot(asset_server.load("HERO.glb#Scene0")),
+        WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("HERO.glb"))),
         Transform::from_xyz(2.0, 1.0, 1.0),
         Infantry::new(Team::Blue, HERO_ROBOT_CONFIG),
         SlapperInfantry,
@@ -207,7 +208,7 @@ pub fn setup(
 }
 
 pub fn setup_ground(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     name: Query<&Name>,
@@ -231,7 +232,7 @@ pub fn setup_ground(
 }
 
 pub fn setup_dart_launch(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     name: Query<&Name>,
@@ -255,7 +256,7 @@ pub fn setup_dart_launch(
 }
 
 pub fn setup_vehicle(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut commands: Commands,
     query: HierarchyQuery,
     root_query: Query<(
@@ -264,8 +265,8 @@ pub fn setup_vehicle(
         Option<&Controlled>,
         Option<&ActiveSlapper>,
     )>,
-    _secondary_query: Query<&ChildOf, (Without<Infantry>, Without<SceneInstance>)>,
-    _node_query: Query<(&Name, &ChildOf), (Without<Infantry>, Without<SceneInstance>)>,
+    _secondary_query: Query<&ChildOf, (Without<Infantry>, Without<WorldInstance>)>,
+    _node_query: Query<(&Name, &ChildOf), (Without<Infantry>, Without<WorldInstance>)>,
     sim_config: Res<SimulationConfig>,
 ) {
     let root = events.entity;
@@ -361,7 +362,7 @@ pub fn setup_vehicle(
 }
 
 pub fn setup_collision(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     name: Query<&Name, With<Children>>,

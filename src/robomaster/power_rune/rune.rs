@@ -59,7 +59,7 @@ fn rune_activation_tick(
     mut runes: Query<(&mut PowerRuneMechanism, &mut PowerRuneRotation)>,
 ) {
     let delta_secs = time.delta_secs();
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
 
     for (mut mechanism, mut rotation) in &mut runes {
         mechanism.state.tick(delta_secs, &mut rng);

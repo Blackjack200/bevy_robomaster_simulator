@@ -82,12 +82,12 @@ fn is_wsl() -> bool {
 fn render_plugin_for_platform() -> RenderPlugin {
     if cfg!(target_os = "linux") && is_wsl() {
         return RenderPlugin {
-            render_creation: RenderCreation::Automatic(WgpuSettings {
+            render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
                 instance_flags: InstanceFlags::default()
                     | InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER,
-                priority: WgpuSettingsPriority::Compatibility,
+                priority: WgpuSettingsPriority::Functionality,
                 ..default()
-            }),
+            })),
             ..default()
         };
     }

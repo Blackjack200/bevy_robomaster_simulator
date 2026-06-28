@@ -28,7 +28,9 @@ pub fn setup_projectile(
             ..default()
         }),
     ));
-    commands.insert_resource(DartSetting(asset_server.load("DART.glb#Scene0")));
+    commands.insert_resource(DartSetting(
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("DART.glb")),
+    ));
 }
 
 pub fn projectile_launch(
@@ -180,7 +182,7 @@ pub fn dart_launch(
             GameLayer::ProjectileSelf,
             [GameLayer::ProjectileOther, GameLayer::ProjectileSelf],
         ),
-        SceneRoot(setting.0.clone()),
+        WorldAssetRoot(setting.0.clone()),
         transform,
         LinearVelocity(direction * DART_SPEED_MPS),
         ProjectileLifetime(Timer::from_seconds(

@@ -30,7 +30,7 @@ pub fn uav_launch(
     if keyboard.pressed(KeyCode::KeyP) {
         commands.spawn((
             RigidBody::Static,
-            SceneRoot(asset_server.load("uav.glb#Scene0")),
+            WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("uav.glb"))),
             Transform::IDENTITY.with_translation(
                 infantry.0.translation + (gimbal.0.rotation() * launch_offset.translation),
             ),

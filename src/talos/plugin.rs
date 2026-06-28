@@ -10,6 +10,7 @@ use crate::talos::capture::{
     publish_talos_pose_system,
 };
 use bevy::ecs::system::RunSystemOnce;
+use bevy::image::BevyDefault;
 use bevy::prelude::*;
 use bevy::render::render_resource::TextureFormat;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -36,7 +37,7 @@ impl Default for TalosPluginConfig {
             width: IMAGE_WIDTH,
             height: IMAGE_HEIGHT,
             fov_y: config.camera.fov.to_radians(),
-            texture_format: TextureFormat::bevy_default(),
+            texture_format: TextureFormat::Rgba8UnormSrgb,
         }
     }
 }

@@ -23,7 +23,7 @@ pub struct ProjectileCooldown(pub Timer);
 pub struct ProjectileSetting(pub Handle<Mesh>, pub Handle<StandardMaterial>);
 
 #[derive(Resource)]
-pub struct DartSetting(pub Handle<Scene>);
+pub struct DartSetting(pub Handle<WorldAsset>);
 
 #[derive(Component)]
 pub struct GroundRoot;

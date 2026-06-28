@@ -8,9 +8,9 @@ use bevy::ecs::system::Local;
 use bevy::pbr::{MeshMaterial3d, StandardMaterial};
 use bevy::prelude::{
     Assets, ButtonInput, Children, Color, Commands, Component, Entity, Handle, KeyCode, Name, On,
-    Plugin, Query, Res, ResMut, SceneSpawner, Time, With, info, warn,
+    Plugin, Query, Res, ResMut, Time, With, info, warn,
 };
-use bevy::scene::SceneInstanceReady;
+use bevy::world_serialization::{WorldInstanceReady, WorldInstanceSpawner};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -1014,9 +1014,9 @@ fn warn_incomplete_first_light_set(prefix: &str, lights: &FirstLightSet) {
 }
 
 fn setup_tech_core(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut commands: Commands,
-    scene_spawner: Res<SceneSpawner>,
+    scene_spawner: Res<WorldInstanceSpawner>,
     roots: Query<(), With<TechCoreRoot>>,
     names: Query<&Name>,
 ) {

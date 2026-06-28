@@ -1,26 +1,16 @@
 use crate::capture::driver::create_capture_image_handle;
 use bevy::asset::RenderAssetUsages;
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::ecs::{query::QueryItem, system::lifetimeless::Read};
+use bevy::core_pipeline::{Core3dSystems, schedule::Core3d};
 use bevy::prelude::*;
 use bevy::render::RenderApp;
 use bevy::render::camera::ExtractedCamera;
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-};
 use bevy::render::render_resource::{
-    CommandEncoderDescriptor, Extent3d, Origin3d, TexelCopyTextureInfo, TextureAspect,
-    TextureFormat, TextureUsages,
+    Extent3d, Origin3d, TexelCopyTextureInfo, TextureAspect, TextureFormat, TextureUsages,
 };
+use bevy::render::renderer::{RenderContext, ViewQuery};
 use bevy::render::texture::GpuImage;
 use bevy::render::view::ViewDepthTexture;
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug, RenderLabel)]
-struct CopyViewTexturePass;
-
-#[derive(Default)]
-struct CopyViewTextureNode;
 
 #[derive(Resource, Clone, Deref, DerefMut)]
 struct CopyViewTextureTarget(Handle<Image>);
@@ -29,66 +19,55 @@ struct CopyViewTextureTarget(Handle<Image>);
 struct CopyViewTextureCameraOrder(isize);
 
 #[derive(Resource, Default)]
-struct CopyViewTextureNodeInstalled(bool);
+struct CopyViewTextureSystemInstalled(bool);
 
 #[derive(Resource, Clone, Copy)]
 enum ViewTextureCopySource {
     Depth,
 }
 
-impl ViewNode for CopyViewTextureNode {
-    type ViewQuery = (Read<ExtractedCamera>, Read<ViewDepthTexture>);
-
-    fn run<'w>(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut bevy::render::renderer::RenderContext<'w>,
-        (camera, depth_texture): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let target_order = world.resource::<CopyViewTextureCameraOrder>().0;
-        if camera.order != target_order {
-            return Ok(());
-        }
-
-        let target = world.resource::<CopyViewTextureTarget>();
-        let source = *world.resource::<ViewTextureCopySource>();
-        let image_assets = world.resource::<RenderAssets<GpuImage>>();
-        let Some(output_image) = image_assets.get(target.0.id()) else {
-            return Ok(());
-        };
-
-        render_context.add_command_buffer_generation_task(move |render_device| {
-            let mut encoder = render_device.create_command_encoder(&CommandEncoderDescriptor {
-                label: Some("copy capture view texture to image"),
-            });
-            let aspect = match source {
-                ViewTextureCopySource::Depth => TextureAspect::DepthOnly,
-            };
-            encoder.copy_texture_to_texture(
-                TexelCopyTextureInfo {
-                    texture: &depth_texture.texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect,
-                },
-                TexelCopyTextureInfo {
-                    texture: &output_image.texture,
-                    mip_level: 0,
-                    origin: Origin3d::ZERO,
-                    aspect,
-                },
-                Extent3d {
-                    width: output_image.size.width,
-                    height: output_image.size.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            encoder.finish()
-        });
-
-        Ok(())
+fn copy_view_texture_system(
+    view: ViewQuery<(&ExtractedCamera, &ViewDepthTexture)>,
+    target_order: Res<CopyViewTextureCameraOrder>,
+    target: Res<CopyViewTextureTarget>,
+    source: Res<ViewTextureCopySource>,
+    image_assets: Res<RenderAssets<GpuImage>>,
+    mut render_context: RenderContext,
+) {
+    let (camera, depth_texture) = view.into_inner();
+    if camera.order != target_order.0 {
+        return;
     }
+
+    let Some(output_image) = image_assets.get(target.0.id()) else {
+        return;
+    };
+
+    let aspect = match *source {
+        ViewTextureCopySource::Depth => TextureAspect::DepthOnly,
+    };
+    let encoder = render_context.command_encoder();
+    encoder.push_debug_group("copy capture view texture to image");
+    encoder.copy_texture_to_texture(
+        TexelCopyTextureInfo {
+            texture: &depth_texture.texture,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect,
+        },
+        TexelCopyTextureInfo {
+            texture: &output_image.texture,
+            mip_level: 0,
+            origin: Origin3d::ZERO,
+            aspect,
+        },
+        Extent3d {
+            width: output_image.texture_descriptor.size.width,
+            height: output_image.texture_descriptor.size.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    encoder.pop_debug_group();
 }
 
 pub struct ViewTextureCopyPlugin {
@@ -138,7 +117,7 @@ impl Plugin for ViewTextureCopyPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .world_mut()
-            .init_resource::<CopyViewTextureNodeInstalled>();
+            .init_resource::<CopyViewTextureSystemInstalled>();
         render_app
             .world_mut()
             .insert_resource(CopyViewTextureTarget(self.target_texture.clone()));
@@ -149,27 +128,21 @@ impl Plugin for ViewTextureCopyPlugin {
 
         let installed = render_app
             .world()
-            .resource::<CopyViewTextureNodeInstalled>()
+            .resource::<CopyViewTextureSystemInstalled>()
             .0;
         if installed {
             return;
         }
 
-        render_app.add_render_graph_node::<ViewNodeRunner<CopyViewTextureNode>>(
+        render_app.add_systems(
             Core3d,
-            CopyViewTexturePass,
-        );
-        render_app.add_render_graph_edges(
-            Core3d,
-            (
-                Node3d::EndPrepasses,
-                CopyViewTexturePass,
-                Node3d::MainOpaquePass,
-            ),
+            copy_view_texture_system
+                .after(Core3dSystems::Prepass)
+                .before(Core3dSystems::MainPass),
         );
         render_app
             .world_mut()
-            .resource_mut::<CopyViewTextureNodeInstalled>()
+            .resource_mut::<CopyViewTextureSystemInstalled>()
             .0 = true;
     }
 }

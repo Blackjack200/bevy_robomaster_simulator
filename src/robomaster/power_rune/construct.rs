@@ -9,11 +9,9 @@ use crate::util::bevy::{drain_entities_by, insert_all_child};
 use crate::{material, visibility};
 use avian3d::prelude::CollisionEventsEnabled;
 use bevy::ecs::system::SystemParam;
-use bevy::prelude::{
-    Children, Commands, Component, Entity, Name, On, Query, Res, SceneSpawner, With,
-};
-use bevy::scene::SceneInstanceReady;
-use rand::RngExt;
+use bevy::prelude::{Children, Commands, Component, Entity, Name, On, Query, Res, With};
+use bevy::world_serialization::{WorldInstanceReady, WorldInstanceSpawner};
+use rand::Rng;
 use std::collections::HashMap;
 
 #[derive(Component)]
@@ -101,7 +99,7 @@ fn build_targets(
 #[derive(SystemParam)]
 struct PowerRuneParam<'w, 's> {
     commands: Commands<'w, 's>,
-    scene_spawner: Res<'w, SceneSpawner>,
+    scene_spawner: Res<'w, WorldInstanceSpawner>,
 
     power_query: Query<'w, 's, (), With<PowerRuneRoot>>,
     names: Query<'w, 's, &'static Name>,
@@ -109,7 +107,7 @@ struct PowerRuneParam<'w, 's> {
 }
 
 fn setup_power_rune(
-    events: On<SceneInstanceReady>,
+    events: On<WorldInstanceReady>,
     mut param: PowerRuneParam,
     mut creator: StatefulAppearanceCreator,
 ) {
@@ -148,7 +146,7 @@ fn setup_power_rune(
         return;
     }
 
-    let red_clockwise = rand::rng().random_bool(0.5);
+    let red_clockwise = rand::thread_rng().gen_bool(0.5);
 
     for (index, face_entity) in faces {
         let mode = if index & 2 > 0 {

@@ -491,7 +491,7 @@ mod tests {
 
     #[test]
     fn small_rune_lights_one_target_and_advances_on_hit() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Small, &mut rng);
         let active = active_indices(&state);
 
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn funny_mode_keeps_small_rune_activating_after_wrong_target() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Small, &mut rng);
         let active = active_indices(&state)[0];
         let wrong = (0..RUNE_TARGET_COUNT).find(|idx| *idx != active).unwrap();
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn small_rune_primary_timeout_fails() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Small, &mut rng);
 
         assert_eq!(
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn large_rune_lights_two_targets_and_enters_secondary_window() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Large, &mut rng);
         let active = active_indices(&state);
 
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn large_rune_secondary_hit_waits_for_window_timeout() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Large, &mut rng);
         let active = active_indices(&state);
 
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn large_rune_secondary_timeout_advances_without_failure() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Large, &mut rng);
         let first = active_indices(&state)[0];
         state.hit(first, &mut rng);
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn large_rune_activates_after_five_primary_hits() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Large, &mut rng);
 
         for expected_progress in 1..RUNE_TARGET_COUNT {
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn large_rune_primary_timeout_fails() {
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
         let mut state = MechanismState::start(RuneMode::Large, &mut rng);
 
         assert_eq!(
@@ -634,7 +634,7 @@ mod tests {
                 },
             }),
         });
-        let mut rng = rand::rng();
+        let mut rng = rand::thread_rng();
 
         assert_eq!(state.tick(1.0, &mut rng), RuneTransition::ResetToInactive);
         assert!(matches!(
