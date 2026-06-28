@@ -1,3 +1,4 @@
+use avian3d::prelude::SubstepCount;
 use bevy::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -89,8 +90,19 @@ impl Default for RenderConfig {
 }
 
 #[derive(Deserialize, Reflect, Clone)]
+#[serde(default)]
 pub struct PhysicsConfig {
     pub substep_count: u32,
+    pub fixed_hz: f64,
+}
+
+impl Default for PhysicsConfig {
+    fn default() -> Self {
+        Self {
+            substep_count: 8,
+            fixed_hz: 120.0,
+        }
+    }
 }
 
 #[derive(Deserialize, Reflect, Clone)]
@@ -262,7 +274,7 @@ impl Default for SimulationConfig {
                 render: RenderConfig::default(),
                 capture: CapturePipelineConfig::default(),
                 livox_ros: LivoxRosConfig::default(),
-                physics: PhysicsConfig { substep_count: 10 },
+                physics: PhysicsConfig::default(),
                 vehicle: VehicleConfig {
                     rotation_speed: 3.0,
                     gimbal_rotation_speed: 3.0,
@@ -343,7 +355,12 @@ impl Plugin for ConfigPlugin {
     }
 }
 
-fn config_hot_reload(mut config: ResMut<SimulationConfig>, watcher: Option<Res<ConfigWatcher>>) {
+fn config_hot_reload(
+    mut config: ResMut<SimulationConfig>,
+    watcher: Option<Res<ConfigWatcher>>,
+    mut substeps: Option<ResMut<SubstepCount>>,
+    mut fixed_time: Option<ResMut<Time<Fixed>>>,
+) {
     let Some(watcher) = watcher else {
         return;
     };
@@ -354,6 +371,12 @@ fn config_hot_reload(mut config: ResMut<SimulationConfig>, watcher: Option<Res<C
             match SimulationConfig::load() {
                 Ok(new_config) => {
                     info!("Config reloaded successfully");
+                    if let Some(substeps) = substeps.as_deref_mut() {
+                        substeps.0 = new_config.physics.substep_count;
+                    }
+                    if let Some(fixed_time) = fixed_time.as_deref_mut() {
+                        *fixed_time = Time::<Fixed>::from_hz(new_config.physics.fixed_hz.max(1.0));
+                    }
                     *config = new_config;
                 }
                 Err(e) => {

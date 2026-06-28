@@ -10,7 +10,7 @@ present_mode = "immediate"
 egui = false
 inspector = false
 # Prints FPS/frametime diagnostics to console.
-diagnostics = false
+diagnostics = true
 
 [preview]
 # On-screen preview camera. Disable to avoid rendering the scene twice (preview + capture).
@@ -41,10 +41,11 @@ publish_freq = 10.0
 points_per_second = 400000
 line_num = 20
 tag_default = 0
-intensity_default = 100.0
+intensity_default = 1000.0
 
 [physics]
-substep_count = 20              # physics substeps per frame
+fixed_hz = 120.0                # fixed physics ticks per second
+substep_count = 8               # physics substeps per fixed tick
 
 [vehicle]
 rotation_speed = 7.42            # rad/s - chassis rotation speed
@@ -52,7 +53,7 @@ gimbal_rotation_speed = 3.0     # rad/s - gimbal rotation speed
 gimbal_pitch_limit = 0.785      # rad - gimbal pitch limit (~45 degrees)
 max_speed = 6.0                 # m/s - maximum vehicle speed
 linear_acceleration = 6.0       # m/s^2 - linear acceleration
-acceleration_exponent = 1.5    # exponent for non-linear acceleration curve
+acceleration_exponent = 2.5    # exponent for non-linear acceleration curve
 
 [mecanum]
 wheel_radius_m = 0.076          # wheel radius (m)

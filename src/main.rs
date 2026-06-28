@@ -95,6 +95,10 @@ fn render_plugin_for_platform() -> RenderPlugin {
     RenderPlugin::default()
 }
 
+fn fixed_time_from_config(config: &SimulationConfig) -> Time<Fixed> {
+    Time::<Fixed>::from_hz(config.physics.fixed_hz.max(1.0))
+}
+
 #[cfg(feature = "talos")]
 fn should_enable_talos_plugin(app: &App) -> bool {
     #[cfg(feature = "ros2")]
@@ -145,6 +149,7 @@ fn main() {
             .add_observer(setup_vehicle)
             .insert_resource(Gravity(Vec3::ZERO))
             .insert_resource(SubstepCount(config.physics.substep_count))
+            .insert_resource(fixed_time_from_config(&config))
             .add_plugins(AutoGenPlugin)
             .run();
         return;
@@ -191,6 +196,7 @@ fn main() {
         .register_type::<ProjectileStatistics>()
         .insert_resource(Gravity(Vec3::NEG_Y * 9.81))
         .insert_resource(SubstepCount(config.physics.substep_count))
+        .insert_resource(fixed_time_from_config(&config))
         .insert_resource(SubscribeAutoAim(AtomicBool::new(false)))
         .insert_resource(ProjectileCooldown(Timer::from_seconds(
             config.projectile.cooldown,
