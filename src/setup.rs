@@ -44,21 +44,13 @@ pub fn setup(
         Transform::from_xyz(0.0, 4.0, 0.0).looking_at(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0)),
     ));
 
-    let layer_env = CollisionLayers::new(
-        [GameLayer::Environment],
-        [
-            GameLayer::Default,
-            GameLayer::VehicleSelf,
-            GameLayer::VehicleOther,
-            GameLayer::ProjectileSelf,
-            GameLayer::ProjectileOther,
-        ],
-    );
+    let layer_env = GameLayer::environment_collision_layers();
 
     let trimesh = || {
         ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
             TrimeshFlags::all(),
         ))
+        .with_default_layers(layer_env)
     };
     let voxel = |size| {
         ColliderConstructorHierarchy::new(ColliderConstructor::VoxelizedTrimeshFromMesh {
@@ -67,6 +59,7 @@ pub fn setup(
                 detect_cavities: true,
             },
         })
+        .with_default_layers(layer_env)
     };
 
     commands.spawn((
@@ -290,34 +283,8 @@ pub fn setup_vehicle(
             }
         });
     }
-    let vehicle_layers = if is_local {
-        GameLayer::VehicleSelf
-    } else {
-        GameLayer::VehicleOther
-    };
-
-    let vehicle_collision_layers = if is_local {
-        CollisionLayers::new(
-            vehicle_layers,
-            [
-                GameLayer::Default,
-                GameLayer::VehicleOther,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        )
-    } else {
-        CollisionLayers::new(
-            vehicle_layers,
-            [
-                GameLayer::Default,
-                GameLayer::VehicleSelf,
-                GameLayer::VehicleOther,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        )
-    };
+    let vehicle_body_collision_layers = GameLayer::vehicle_body_collision_layers(is_local);
+    let vehicle_armor_collision_layers = GameLayer::vehicle_armor_collision_layers(is_local);
 
     commands.entity(root).insert((
         RigidBody::Dynamic,
@@ -332,14 +299,14 @@ pub fn setup_vehicle(
             Collider::cylinder(0.2593615, 0.231298),
         )]),
         CollisionMargin(0.005),
-        vehicle_collision_layers,
+        vehicle_body_collision_layers,
         Mass(15.0),
         Restitution::new(0.01),
         AngularDamping(50.0),
     ));
 
     query.children.iter_descendants(root).for_each(|e| {
-        commands.entity(e).insert(vehicle_collision_layers);
+        commands.entity(e).insert(vehicle_armor_collision_layers);
     });
 
     let iter = query.of(root).any().exact("VEHICLE").flatten();

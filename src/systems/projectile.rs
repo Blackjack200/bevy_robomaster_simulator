@@ -72,15 +72,7 @@ pub fn projectile_launch(
         Friction::new(config.projectile.friction),
         Restitution::new(0.3),
         LinearDamping(config.projectile.linear_damping),
-        CollisionLayers::new(
-            GameLayer::ProjectileSelf,
-            [
-                GameLayer::Default,
-                GameLayer::VehicleOther,
-                GameLayer::ProjectileOther,
-                GameLayer::Environment,
-            ],
-        ),
+        GameLayer::projectile_collision_layers(true),
         Mesh3d(setting.0.clone()),
         MeshMaterial3d(setting.1.clone()),
         LinearVelocity(vel),
@@ -170,6 +162,7 @@ pub fn dart_launch(
                 detect_cavities: true,
             },
         })
+        .with_default_layers(GameLayer::projectile_collision_layers(true))
     };
     commands.spawn((
         RigidBody::Dynamic,
@@ -178,10 +171,7 @@ pub fn dart_launch(
         Friction::new(config.projectile.friction),
         Restitution::new(0.55),
         LinearDamping(config.projectile.linear_damping),
-        CollisionLayers::new(
-            GameLayer::ProjectileSelf,
-            [GameLayer::ProjectileOther, GameLayer::ProjectileSelf],
-        ),
+        GameLayer::projectile_collision_layers(true),
         WorldAssetRoot(setting.0.clone()),
         transform,
         LinearVelocity(direction * DART_SPEED_MPS),

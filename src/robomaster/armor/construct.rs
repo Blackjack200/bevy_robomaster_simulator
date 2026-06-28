@@ -1,7 +1,9 @@
 use crate::query;
 use crate::robomaster::prelude::{ArmorLabel, ArmorSpec, MarkerData, Team, extract_markers};
 use crate::util::entity_query::HierarchyQuery;
-use avian3d::prelude::{ColliderConstructor, ColliderConstructorHierarchy, TrimeshFlags};
+use avian3d::prelude::{
+    ColliderConstructor, ColliderConstructorHierarchy, CollisionLayers, TrimeshFlags,
+};
 use bevy::app::App;
 use bevy::ecs::system::SystemParam;
 use bevy::ecs::system::lifetimeless::Read;
@@ -94,6 +96,7 @@ pub struct ArmorConstructor<'w, 's> {
     child_of: Query<'w, 's, Read<ChildOf>>,
     name: Query<'w, 's, Read<Name>, With<ChildOf>>,
     mesh_query: Query<'w, 's, Read<Mesh3d>>,
+    collision_layers: Query<'w, 's, Read<CollisionLayers>>,
     mesh_assets: Res<'w, Assets<Mesh>>,
 }
 
@@ -200,10 +203,17 @@ impl ArmorConstructor<'_, '_> {
         let query = HierarchyQuery::new(self.child_of, self.children, self.name);
         let root_query = query.of(root).flatten();
         {
-            self.commands.entity(query!(root_query, .."ARMOR")?).insert(
+            let armor_entity = query!(root_query, .."ARMOR")?;
+            let collision_layers = self
+                .collision_layers
+                .get(armor_entity)
+                .copied()
+                .unwrap_or_default();
+            self.commands.entity(armor_entity).insert(
                 ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
                     TrimeshFlags::MERGE_DUPLICATE_VERTICES,
-                )),
+                ))
+                .with_default_layers(collision_layers),
             );
         }
         {
